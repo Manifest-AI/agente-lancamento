@@ -3,8 +3,24 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+
+import ConfirmEmailNotice from '@/app/(auth)/components/ConfirmEmailNotice';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabaseClient';
+
+function mapSignInError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('invalid login credentials')) {
+    return 'E-mail ou senha inválidos.';
+  }
+
+  if (normalized.includes('email not confirmed') || normalized.includes('must confirm your email')) {
+    return 'confirm-email';
+  }
+
+  return 'Não foi possível entrar. Tente novamente.';
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +29,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirmNotice, setShowConfirmNotice] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -20,10 +38,27 @@ export default function LoginPage() {
     }
   }, [router, user]);
 
+  const handleResendConfirmation = async () => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: confirmationEmail,
+    });
+
+    if (error) {
+      if (error.message.toLowerCase().includes('rate limit')) {
+        throw new Error('Você solicitou muitos envios. Aguarde alguns minutos.');
+      }
+
+      throw new Error('Não foi possível reenviar agora. Tente novamente em instantes.');
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!email.trim() || !password.trim()) {
+    const sanitizedEmail = email.trim();
+
+    if (!sanitizedEmail || !password.trim()) {
       setError('Preencha e-mail e senha para continuar.');
       return;
     }
@@ -34,21 +69,37 @@ export default function LoginPage() {
     }
 
     setError(null);
+    setShowConfirmNotice(false);
     setIsSubmitting(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: sanitizedEmail,
+        password,
+      });
 
-    setIsSubmitting(false);
+      if (signInError) {
+        const mappedError = mapSignInError(signInError.message);
 
-    if (error) {
-      setError(error.message);
-      return;
+        if (mappedError === 'confirm-email') {
+          setConfirmationEmail(sanitizedEmail);
+          setShowConfirmNotice(true);
+          return;
+        }
+
+        setError(mappedError);
+        return;
+      }
+
+      router.replace('/dashboard');
+    } catch (signInException) {
+      const message = signInException instanceof Error
+        ? signInException.message
+        : 'Não foi possível entrar. Tente novamente.';
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    router.replace('/dashboard');
   };
 
   return (
@@ -70,7 +121,11 @@ export default function LoginPage() {
               className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               placeholder="nome@email.com"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setError(null);
+                setShowConfirmNotice(false);
+              }}
               autoComplete="email"
               required
             />
@@ -86,14 +141,19 @@ export default function LoginPage() {
               className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               placeholder="mínimo de 6 caracteres"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setError(null);
+              }}
               autoComplete="current-password"
               required
             />
           </div>
 
           {error ? (
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600" role="alert">
+              {error}
+            </p>
           ) : null}
 
           <button
@@ -104,6 +164,22 @@ export default function LoginPage() {
             {isSubmitting ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
+
+        {showConfirmNotice ? (
+          <div className="mt-8">
+            <ConfirmEmailNotice
+              email={confirmationEmail}
+              onResend={handleResendConfirmation}
+              onChangeEmail={() => {
+                setShowConfirmNotice(false);
+                setError(null);
+              }}
+              title="Confirme seu e-mail para entrar"
+              description="Sua conta ainda não foi ativada. Reenvie a confirmação para continuar."
+              actionLabel="Reenviar confirmação"
+            />
+          </div>
+        ) : null}
 
         <p className="mt-6 text-center text-sm text-slate-600">
           Ainda não tem conta?{' '}
