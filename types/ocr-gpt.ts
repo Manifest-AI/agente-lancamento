@@ -1,21 +1,23 @@
-export type IdentValue = 'BPS' | 'AA/TR' | 'BUE' | 'BUE/A' | 'BUE/T';
-
-export type PassageiroTipo = 'A' | 'C' | 'I';
-
 export type ExtractedReservation = {
-  operadora: string | null;
-  data_chegada_bps: string | null;
-  data_saida_bps: string | null;
-  ident: IdentValue | null;
+  operador: string | null;
+  origem_operadora: string | null;
+  localizador: string | null;
+  booking_code: string | null;
+  passageiro_nome: string | null;
+  passageiro_sobrenome: string | null;
+  passageiro_full_name: string | null;
+  servico: string | null;
+  data: string | null;
+  hora_coleta: string | null;
+  hora_retorno: string | null;
   voo_chegada: string | null;
-  voo_saida: string | null;
-  hora_chegada: string | null;
-  hora_saida: string | null;
+  voo_partida: string | null;
   hotel: string | null;
-  id_reserva: string | null;
-  nome: string | null;
-  tipo: PassageiroTipo | null;
-  observacao: string | null;
+  endereco: string | null;
+  pax_adulto: string | number | null;
+  pax_crianca: string | number | null;
+  pax_bebe: string | number | null;
+  observacoes: string | null;
 };
 
 export type ExtractedReservationFieldKey = keyof ExtractedReservation;

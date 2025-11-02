@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
 import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { DetectedFieldsPreview } from './DetectedFieldsPreview';
@@ -19,69 +19,96 @@ export type ImportReservaModalProps = {
 };
 
 const MAX_FILE_SIZE_MB = 10;
-const IDENT_VALUES: ExtractedReservation['ident'][] = ['BPS', 'AA/TR', 'BUE', 'BUE/A', 'BUE/T'];
-const TIPO_VALUES: ExtractedReservation['tipo'][] = ['A', 'C', 'I'];
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 const FLIGHT_REGEX = /^[A-Z]{2}\s?\d{3,4}$/;
+const INTEGER_REGEX = /^\d+$/;
 
 const emptyDraft: ExtractedReservationDraft = {
-  operadora: '',
-  data_chegada_bps: '',
-  data_saida_bps: '',
-  ident: '',
+  operador: '',
+  origem_operadora: '',
+  localizador: '',
+  booking_code: '',
+  passageiro_nome: '',
+  passageiro_sobrenome: '',
+  passageiro_full_name: '',
+  servico: '',
+  data: '',
+  hora_coleta: '',
+  hora_retorno: '',
   voo_chegada: '',
-  voo_saida: '',
-  hora_chegada: '',
-  hora_saida: '',
+  voo_partida: '',
   hotel: '',
-  id_reserva: '',
-  nome: '',
-  tipo: '',
-  observacao: '',
+  endereco: '',
+  pax_adulto: '',
+  pax_crianca: '',
+  pax_bebe: '',
+  observacoes: '',
 };
+
+function coercePaxValue(value: string): string | number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? numeric : trimmed;
+}
 
 function toDraft(data: ExtractedReservation): ExtractedReservationDraft {
   return {
-    operadora: data.operadora ?? '',
-    data_chegada_bps: data.data_chegada_bps ?? '',
-    data_saida_bps: data.data_saida_bps ?? '',
-    ident: data.ident ?? '',
+    operador: data.operador ?? '',
+    origem_operadora: data.origem_operadora ?? '',
+    localizador: data.localizador ?? '',
+    booking_code: data.booking_code ?? '',
+    passageiro_nome: data.passageiro_nome ?? '',
+    passageiro_sobrenome: data.passageiro_sobrenome ?? '',
+    passageiro_full_name: data.passageiro_full_name ?? '',
+    servico: data.servico ?? '',
+    data: data.data ?? '',
+    hora_coleta: data.hora_coleta ?? '',
+    hora_retorno: data.hora_retorno ?? '',
     voo_chegada: data.voo_chegada ?? '',
-    voo_saida: data.voo_saida ?? '',
-    hora_chegada: data.hora_chegada ?? '',
-    hora_saida: data.hora_saida ?? '',
+    voo_partida: data.voo_partida ?? '',
     hotel: data.hotel ?? '',
-    id_reserva: data.id_reserva ?? '',
-    nome: data.nome ?? '',
-    tipo: data.tipo ?? '',
-    observacao: data.observacao ?? '',
+    endereco: data.endereco ?? '',
+    pax_adulto: data.pax_adulto != null ? String(data.pax_adulto) : '',
+    pax_crianca: data.pax_crianca != null ? String(data.pax_crianca) : '',
+    pax_bebe: data.pax_bebe != null ? String(data.pax_bebe) : '',
+    observacoes: data.observacoes ?? '',
   };
 }
 
 function fromDraft(draft: ExtractedReservationDraft): ExtractedReservation {
   return {
-    operadora: draft.operadora.trim() || null,
-    data_chegada_bps: draft.data_chegada_bps.trim() || null,
-    data_saida_bps: draft.data_saida_bps.trim() || null,
-    ident: (draft.ident.trim().toUpperCase() as ExtractedReservation['ident']) || null,
+    operador: draft.operador.trim() || null,
+    origem_operadora: draft.origem_operadora.trim() || null,
+    localizador: draft.localizador.trim() || null,
+    booking_code: draft.booking_code.trim() || null,
+    passageiro_nome: draft.passageiro_nome.trim() || null,
+    passageiro_sobrenome: draft.passageiro_sobrenome.trim() || null,
+    passageiro_full_name: draft.passageiro_full_name.trim() || null,
+    servico: draft.servico.trim() || null,
+    data: draft.data.trim() || null,
+    hora_coleta: draft.hora_coleta.trim() || null,
+    hora_retorno: draft.hora_retorno.trim() || null,
     voo_chegada: draft.voo_chegada.trim() || null,
-    voo_saida: draft.voo_saida.trim() || null,
-    hora_chegada: draft.hora_chegada.trim() || null,
-    hora_saida: draft.hora_saida.trim() || null,
+    voo_partida: draft.voo_partida.trim() || null,
     hotel: draft.hotel.trim() || null,
-    id_reserva: draft.id_reserva.trim() || null,
-    nome: draft.nome.trim() || null,
-    tipo: (draft.tipo.trim().toUpperCase() as ExtractedReservation['tipo']) || null,
-    observacao: draft.observacao.trim() || null,
+    endereco: draft.endereco.trim() || null,
+    pax_adulto: coercePaxValue(draft.pax_adulto),
+    pax_crianca: coercePaxValue(draft.pax_crianca),
+    pax_bebe: coercePaxValue(draft.pax_bebe),
+    observacoes: draft.observacoes.trim() || null,
   };
 }
 
 function validateDraft(draft: ExtractedReservationDraft): ExtractedReservationErrors {
   const errors: ExtractedReservationErrors = {};
 
-  const maybeDateFields: Array<ExtractedReservationFieldKey> = ['data_chegada_bps', 'data_saida_bps'];
+  const maybeDateFields: Array<ExtractedReservationFieldKey> = ['data'];
   maybeDateFields.forEach((field) => {
     const value = draft[field].trim();
     if (value && !DATE_REGEX.test(value)) {
@@ -89,7 +116,7 @@ function validateDraft(draft: ExtractedReservationDraft): ExtractedReservationEr
     }
   });
 
-  const maybeTimeFields: Array<ExtractedReservationFieldKey> = ['hora_chegada', 'hora_saida'];
+  const maybeTimeFields: Array<ExtractedReservationFieldKey> = ['hora_coleta', 'hora_retorno'];
   maybeTimeFields.forEach((field) => {
     const value = draft[field].trim();
     if (value && !TIME_REGEX.test(value)) {
@@ -97,56 +124,49 @@ function validateDraft(draft: ExtractedReservationDraft): ExtractedReservationEr
     }
   });
 
-  const maybeFlightFields: Array<ExtractedReservationFieldKey> = ['voo_chegada', 'voo_saida'];
+  const maybeFlightFields: Array<ExtractedReservationFieldKey> = ['voo_chegada', 'voo_partida'];
   maybeFlightFields.forEach((field) => {
     const value = draft[field].trim();
     if (value && !FLIGHT_REGEX.test(value.toUpperCase())) {
-      errors[field] = 'Informe o código do voo (ex.: LA 3600).';
+      errors[field] = 'Informe o código do voo (ex.: LA3600).';
     }
   });
 
-  const identValue = draft.ident.trim();
-  if (identValue && !IDENT_VALUES.includes(identValue.toUpperCase() as ExtractedReservation['ident'])) {
-    errors.ident = 'IDENT inválido.';
-  }
-
-  const tipoValue = draft.tipo.trim();
-  if (tipoValue && !TIPO_VALUES.includes(tipoValue.toUpperCase() as ExtractedReservation['tipo'])) {
-    errors.tipo = 'Use A, C ou I.';
-  }
-
-  const nomeValue = draft.nome.trim();
-  if (nomeValue) {
-    const parts = nomeValue.split(/\s+/).filter(Boolean);
-    if (parts.length < 2) {
-      errors.nome = 'Informe primeiro e último nome.';
+  const paxFields: Array<ExtractedReservationFieldKey> = ['pax_adulto', 'pax_crianca', 'pax_bebe'];
+  paxFields.forEach((field) => {
+    const value = draft[field].trim();
+    if (value && !INTEGER_REGEX.test(value)) {
+      errors[field] = 'Informe um número inteiro.';
     }
-  }
-
-  const observacaoValue = draft.observacao.trim();
-  if (observacaoValue && observacaoValue.toLowerCase() !== 'privativo') {
-    errors.observacao = 'Use "Privativo" ou deixe em branco para regular.';
-  }
+  });
 
   return errors;
 }
 
 function normalizeFieldValue(key: ExtractedReservationFieldKey, value: string) {
   const trimmed = value;
-  if (key === 'ident' || key === 'voo_chegada' || key === 'voo_saida' || key === 'tipo') {
+  if (
+    key === 'localizador' ||
+    key === 'booking_code' ||
+    key === 'voo_chegada' ||
+    key === 'voo_partida'
+  ) {
     return trimmed.toUpperCase();
   }
+
   return trimmed;
 }
 
 async function readFileAsFormData(file: File) {
   const formData = new FormData();
+  formData.append('type', 'image');
   formData.append('file', file);
   return formData;
 }
 
 function buildTextFormData(text: string) {
   const formData = new FormData();
+  formData.append('type', 'text');
   formData.append('text', text);
   return formData;
 }
@@ -156,57 +176,30 @@ type ExtractorErrorDetails = {
   message: string;
   hint?: string;
   requestId?: string;
-  httpStatus?: number;
+  status?: number;
 };
 
-function mapErrorCodeToMessage(code: string | undefined, backendMessage: string) {
+function mapErrorCodeToMessage(code: string | undefined) {
   const normalized = code?.toLowerCase();
-  let baseMessage: string;
 
   switch (normalized) {
     case 'missing_api_key':
     case 'invalid_api_key':
-      baseMessage = 'Chave da IA ausente ou inválida. Verifique as variáveis de ambiente.';
-      break;
+      return 'Chave da IA ausente/ inválida. Verifique as variáveis de ambiente.';
     case 'payload_too_large':
-      baseMessage = 'Arquivo maior que o limite de 10 MB.';
-      break;
+      return 'Arquivo maior que 10 MB.';
     case 'unsupported_media_type':
-      baseMessage = 'Formato não suportado. Use PNG, JPG ou PDF.';
-      break;
+      return 'Formato não suportado (use PNG, JPG ou PDF).';
     case 'rate_limited':
-      baseMessage = 'Muitas tentativas agora. Tente novamente em alguns segundos.';
-      break;
+      return 'Muitas tentativas agora. Tente novamente em instantes.';
     case 'openai_upstream_error':
-      baseMessage = 'Falha temporária no provedor de IA.';
-      break;
+    case 'timeout':
+      return 'Falha temporária no provedor de IA.';
     case 'openai_invalid_response':
-      baseMessage = 'A IA não retornou dados válidos.';
-      break;
-    case 'invalid_json_response':
-      baseMessage = 'Não foi possível ler a resposta do servidor.';
-      break;
-    case 'network_error':
-      baseMessage = 'Falha de rede ao contatar o servidor.';
-      break;
-    case 'bad_request':
-      baseMessage = 'Não foi possível concluir a extração.';
-      break;
+      return 'A IA não retornou dados válidos.';
     default:
-      baseMessage = 'Não foi possível concluir a extração.';
-      break;
+      return 'Não foi possível concluir a extração.';
   }
-
-  if (!backendMessage) {
-    return baseMessage;
-  }
-
-  const trimmedBackend = backendMessage.trim();
-  if (!trimmedBackend || trimmedBackend === baseMessage) {
-    return baseMessage;
-  }
-
-  return `${baseMessage} Detalhes: ${trimmedBackend}`;
 }
 
 export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: ImportReservaModalProps) {
@@ -222,6 +215,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const [errors, setErrors] = useState<ExtractedReservationErrors>({});
   const [extractedData, setExtractedData] = useState<ExtractedReservation | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
+  const [clipboardSupport, setClipboardSupport] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
+  const errorDetailsRef = useRef<HTMLPreElement | null>(null);
 
   const hasResult = useMemo(() => Boolean(extractedData), [extractedData]);
   const acceptedTypes = useMemo(() => ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'], []);
@@ -243,6 +238,29 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   useEffect(() => {
     if (!isOpen) {
       resetState();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setClipboardSupport('unknown');
+      return;
+    }
+
+    try {
+      const hasWindow = typeof window !== 'undefined';
+      const hasNavigator = typeof navigator !== 'undefined';
+      const supported = Boolean(
+        hasWindow &&
+          window.isSecureContext &&
+          hasNavigator &&
+          'clipboard' in navigator &&
+          navigator.clipboard &&
+          typeof navigator.clipboard.writeText === 'function',
+      );
+      setClipboardSupport(supported ? 'supported' : 'unsupported');
+    } catch {
+      setClipboardSupport('unsupported');
     }
   }, [isOpen]);
 
@@ -275,6 +293,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrors({});
     setExtractedData(null);
     setModelName(null);
+    setClipboardSupport('unknown');
+    errorDetailsRef.current = null;
   }, []);
 
   const handleClose = useCallback(() => {
@@ -287,27 +307,31 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrorMessage(null);
     setErrorDetails(null);
     setShowErrorDetails(false);
+    errorDetailsRef.current = null;
   };
 
   const handleFileSelect = (file: File | null) => {
     if (!file) {
       setSelectedFile(null);
+      errorDetailsRef.current = null;
       return;
     }
 
     if (!acceptedTypes.includes(file.type)) {
-      setErrorMessage('Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.');
+      setErrorMessage('Formato não suportado (use PNG, JPG ou PDF).');
       setErrorDetails(null);
       setShowErrorDetails(false);
       setSelectedFile(null);
+      errorDetailsRef.current = null;
       return;
     }
 
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setErrorMessage(`Arquivo muito grande. Limite de ${MAX_FILE_SIZE_MB}MB.`);
+      setErrorMessage('Arquivo maior que 10 MB.');
       setErrorDetails(null);
       setShowErrorDetails(false);
       setSelectedFile(null);
+      errorDetailsRef.current = null;
       return;
     }
 
@@ -315,6 +339,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrorDetails(null);
     setShowErrorDetails(false);
     setSelectedFile(file);
+    errorDetailsRef.current = null;
   };
 
   const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
@@ -339,6 +364,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       setErrorMessage(null);
       setErrorDetails(null);
       setShowErrorDetails(false);
+      errorDetailsRef.current = null;
       try {
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
@@ -357,14 +383,14 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
         try {
           payload = await response.json();
         } catch {
-          const httpStatus = response.status || undefined;
+          const status = response.status || undefined;
           const details: ExtractorErrorDetails = {
             code: 'invalid_json_response',
             message: 'Resposta inválida do servidor.',
-            hint: 'Não foi possível ler a resposta do servidor',
-            httpStatus,
+            hint: 'Não foi possível ler a resposta do servidor.',
+            status,
           };
-          const userMessage = mapErrorCodeToMessage(details.code, details.message);
+          const userMessage = mapErrorCodeToMessage(details.code);
           setErrorMessage(userMessage);
           setErrorDetails(details);
           setShowErrorDetails(false);
@@ -387,9 +413,9 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
             message,
             hint,
             requestId: typeof parsed?.requestId === 'string' ? parsed.requestId : undefined,
-            httpStatus: response.status || undefined,
+            status: response.status || undefined,
           };
-          const userMessage = mapErrorCodeToMessage(code, message);
+          const userMessage = mapErrorCodeToMessage(code);
           setErrorMessage(userMessage);
           setErrorDetails(details);
           setShowErrorDetails(false);
@@ -400,7 +426,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
         const data = parsed.data as ExtractedReservation | undefined;
         if (!data) {
-          setErrorMessage('A resposta não contém dados reconhecíveis.');
+          setErrorMessage('A IA não retornou dados válidos.');
           setErrorDetails(null);
           setShowErrorDetails(false);
           setExtractedData(null);
@@ -426,11 +452,11 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
         console.error('Erro ao chamar o extrator', error);
         if (error instanceof DOMException && error.name === 'AbortError') {
           const details: ExtractorErrorDetails = {
-            code: 'openai_upstream_error',
+            code: 'timeout',
             message: 'Tempo limite atingido na solicitação.',
             hint: 'timeout',
           };
-          const userMessage = mapErrorCodeToMessage(details.code, details.message);
+          const userMessage = mapErrorCodeToMessage(details.code);
           setErrorMessage(userMessage);
           setErrorDetails(details);
           setShowErrorDetails(false);
@@ -439,7 +465,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
             code: 'network_error',
             message: error instanceof Error ? error.message : 'Erro de rede ao contatar o servidor.',
           };
-          const userMessage = mapErrorCodeToMessage(details.code, details.message);
+          const userMessage = mapErrorCodeToMessage(details.code);
           setErrorMessage(userMessage);
           setErrorDetails(details);
           setShowErrorDetails(false);
@@ -455,11 +481,12 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
   const handleExtractFromText = async () => {
     const trimmed = textInput.trim();
-    if (!trimmed) {
-      setErrorMessage('Cole o conteúdo completo do e-mail de confirmação.');
+    if (trimmed.length < 20) {
+      setErrorMessage('Texto insuficiente. Cole o conteúdo completo.');
       setErrorDetails(null);
       setShowErrorDetails(false);
       setExtractedData(null);
+      errorDetailsRef.current = null;
       return;
     }
 
@@ -472,6 +499,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       setErrorMessage('Selecione um arquivo de imagem ou PDF.');
       setErrorDetails(null);
       setShowErrorDetails(false);
+      errorDetailsRef.current = null;
       return;
     }
 
@@ -487,6 +515,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrorDetails(null);
     setShowErrorDetails(false);
     setModelName(null);
+    errorDetailsRef.current = null;
   };
 
   const handleEditableFieldChange = (key: ExtractedReservationFieldKey, value: string) => {
@@ -499,6 +528,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrorMessage(null);
     setErrorDetails(null);
     setShowErrorDetails(false);
+    errorDetailsRef.current = null;
   };
 
   const handleApplyToForm = () => {
@@ -509,6 +539,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       setErrorMessage('Revise os campos destacados antes de aplicar.');
       setErrorDetails(null);
       setShowErrorDetails(false);
+      errorDetailsRef.current = null;
       return;
     }
 
@@ -523,6 +554,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     [filePreviewUrl, selectedFile],
   );
   const isPdf = selectedFile?.type === 'application/pdf';
+  const canUseClipboard = clipboardSupport === 'supported';
 
   if (!isOpen) {
     return null;
@@ -532,22 +564,49 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     if (!errorDetails) {
       return;
     }
+
+    if (clipboardSupport !== 'supported') {
+      onNotify?.({ type: 'error', message: 'Copiar não suportado neste navegador.' });
+      return;
+    }
+
     const payload = {
       code: errorDetails.code,
       message: errorDetails.message,
       ...(errorDetails.hint ? { hint: errorDetails.hint } : {}),
       ...(errorDetails.requestId ? { requestId: errorDetails.requestId } : {}),
-      ...(typeof errorDetails.httpStatus === 'number' ? { httpStatus: errorDetails.httpStatus } : {}),
+      ...(typeof errorDetails.status === 'number' ? { status: errorDetails.status } : {}),
     };
 
     try {
       await navigator.clipboard.writeText(JSON.stringify(payload));
-      onNotify?.({ type: 'success', message: 'Detalhes copiados para a área de transferência.' });
+      onNotify?.({ type: 'success', message: 'Copiado para a área de transferência.' });
     } catch (clipError) {
       console.error('Falha ao copiar detalhes de erro', clipError);
-      onNotify?.({ type: 'error', message: 'Não foi possível copiar os detalhes. Copie manualmente.' });
+      onNotify?.({ type: 'error', message: 'Não foi possível copiar.' });
     }
-  }, [errorDetails, onNotify]);
+  }, [clipboardSupport, errorDetails, onNotify]);
+
+  const handleSelectErrorDetails = useCallback(() => {
+    if (!errorDetailsRef.current) {
+      return;
+    }
+
+    try {
+      const selection = window.getSelection();
+      if (!selection) {
+        return;
+      }
+      selection.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(errorDetailsRef.current);
+      selection.addRange(range);
+      onNotify?.({ type: 'success', message: 'Detalhes selecionados. Use Ctrl/Cmd+C para copiar.' });
+    } catch (selectionError) {
+      console.error('Falha ao selecionar detalhes', selectionError);
+      onNotify?.({ type: 'error', message: 'Não foi possível selecionar o texto.' });
+    }
+  }, [onNotify]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
@@ -597,59 +656,89 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           </div>
 
           {errorMessage && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-col gap-1">
-                  <p className="font-medium text-rose-700">{errorMessage}</p>
-                  {errorDetails?.message && errorDetails.message !== errorMessage && (
-                    <p className="text-xs text-rose-600">Detalhes do servidor: {errorDetails.message}</p>
-                  )}
-                  {errorDetails?.hint && (
-                    <p className="text-xs text-rose-600">Hint: {errorDetails.hint}</p>
-                  )}
-                </div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              <div className="flex flex-col gap-3">
+                <p className="font-semibold text-rose-800">{errorMessage}</p>
                 {errorDetails && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-rose-600">
-                    <span className="font-semibold">Request ID:</span>
-                    <span className="font-mono">{errorDetails.requestId ?? 'N/A'}</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowErrorDetails((previous) => !previous)}
-                      className="ml-auto inline-flex items-center justify-center rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100"
-                    >
-                      {showErrorDetails ? 'Ocultar detalhes' : 'Ver detalhes'}
-                    </button>
-                  </div>
-                )}
-                {errorDetails && showErrorDetails && (
                   <div className="rounded-lg border border-rose-200 bg-white/70 p-3 text-xs text-rose-700">
-                    <div className="flex flex-col gap-2">
-                      <pre className="whitespace-pre-wrap break-words font-mono text-[11px]">
+                    <dl className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <dt className="font-semibold uppercase tracking-wide text-rose-600">Código</dt>
+                        <dd className="font-mono text-rose-700">{errorDetails.code}</dd>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <dt className="font-semibold uppercase tracking-wide text-rose-600">Mensagem</dt>
+                        <dd className="text-rose-700">{errorDetails.message}</dd>
+                      </div>
+                      {errorDetails.hint ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <dt className="font-semibold uppercase tracking-wide text-rose-600">Hint</dt>
+                          <dd className="text-rose-700">{errorDetails.hint}</dd>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <dt className="font-semibold uppercase tracking-wide text-rose-600">Request ID</dt>
+                        <dd className="font-mono text-rose-700">{errorDetails.requestId ?? 'N/A'}</dd>
+                      </div>
+                      {typeof errorDetails.status === 'number' ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <dt className="font-semibold uppercase tracking-wide text-rose-600">Status</dt>
+                          <dd className="font-mono text-rose-700">{errorDetails.status}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {canUseClipboard ? (
+                        <button
+                          type="button"
+                          onClick={handleCopyErrorDetails}
+                          className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-3 py-1 text-[11px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                        >
+                          Copiar detalhes
+                        </button>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-medium text-rose-600">
+                            {clipboardSupport === 'unsupported'
+                              ? 'Copiar não suportado neste navegador.'
+                              : 'Verificando suporte ao copiar...'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleSelectErrorDetails}
+                            className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-3 py-1 text-[11px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                          >
+                            Selecionar tudo
+                          </button>
+                          <span className="text-[11px] text-rose-500">Depois, pressione Ctrl/Cmd+C.</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowErrorDetails((previous) => !previous)}
+                        className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-3 py-1 text-[11px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                      >
+                        {showErrorDetails ? 'Ocultar JSON' : 'Ver JSON'}
+                      </button>
+                    </div>
+                    {showErrorDetails ? (
+                      <pre
+                        ref={errorDetailsRef}
+                        className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-rose-50/70 p-3 font-mono text-[11px]"
+                      >
                         {JSON.stringify(
                           {
                             code: errorDetails.code,
                             message: errorDetails.message,
                             ...(errorDetails.hint ? { hint: errorDetails.hint } : {}),
                             ...(errorDetails.requestId ? { requestId: errorDetails.requestId } : {}),
-                            ...(typeof errorDetails.httpStatus === 'number'
-                              ? { httpStatus: errorDetails.httpStatus }
-                              : {}),
+                            ...(typeof errorDetails.status === 'number' ? { status: errorDetails.status } : {}),
                           },
                           null,
                           2,
                         )}
                       </pre>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] uppercase tracking-wide text-rose-500">Copie e envie ao suporte</span>
-                        <button
-                          type="button"
-                          onClick={handleCopyErrorDetails}
-                          className="inline-flex items-center justify-center rounded-lg border border-rose-200 px-3 py-1 text-[11px] font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100"
-                        >
-                          Copiar detalhes
-                        </button>
-                      </div>
-                    </div>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -675,7 +764,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                Extrair dados
+                {isProcessing ? 'Processando…' : 'Extrair dados'}
               </button>
             </div>
           )}
@@ -747,7 +836,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                Executar OCR
+                {isProcessing ? 'Processando…' : 'Executar OCR'}
               </button>
             </div>
           )}

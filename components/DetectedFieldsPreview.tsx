@@ -1,7 +1,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type {
   ExtractedReservationDraft,
   ExtractedReservationErrors,
@@ -24,19 +24,25 @@ const fieldConfigurations: Array<{
   placeholder?: string;
   type?: 'text' | 'textarea';
 }> = [
-  { key: 'operadora', label: 'Operadora', placeholder: 'Nome da operadora' },
-  { key: 'data_chegada_bps', label: 'Data de chegada (BPS)', placeholder: 'yyyy-mm-dd' },
-  { key: 'data_saida_bps', label: 'Data de saída (BPS)', placeholder: 'yyyy-mm-dd' },
-  { key: 'ident', label: 'IDENT', placeholder: 'BPS, AA/TR, BUE, BUE/A ou BUE/T' },
-  { key: 'voo_chegada', label: 'Voo de chegada', placeholder: 'Ex.: LA 3600' },
-  { key: 'voo_saida', label: 'Voo de saída', placeholder: 'Ex.: LA 3601' },
-  { key: 'hora_chegada', label: 'Hora de chegada', placeholder: 'hh:mm' },
-  { key: 'hora_saida', label: 'Hora de saída', placeholder: 'hh:mm' },
+  { key: 'operador', label: 'Operador', placeholder: 'Nome do operador' },
+  { key: 'origem_operadora', label: 'Origem (operadora)', placeholder: 'Origem fornecida pela operadora' },
+  { key: 'localizador', label: 'Localizador', placeholder: 'Código localizador' },
+  { key: 'booking_code', label: 'Booking code', placeholder: 'Código alternativo da reserva' },
+  { key: 'passageiro_nome', label: 'Nome do passageiro', placeholder: 'Primeiro nome' },
+  { key: 'passageiro_sobrenome', label: 'Sobrenome do passageiro', placeholder: 'Último nome' },
+  { key: 'passageiro_full_name', label: 'Nome completo', placeholder: 'Nome completo do passageiro' },
+  { key: 'servico', label: 'Serviço', placeholder: 'Transfer, passeio, etc.' },
+  { key: 'data', label: 'Data', placeholder: 'yyyy-mm-dd' },
+  { key: 'hora_coleta', label: 'Hora de coleta', placeholder: 'hh:mm' },
+  { key: 'hora_retorno', label: 'Hora de retorno', placeholder: 'hh:mm' },
+  { key: 'voo_chegada', label: 'Voo de chegada', placeholder: 'Ex.: LA3600' },
+  { key: 'voo_partida', label: 'Voo de partida', placeholder: 'Ex.: LA3601' },
   { key: 'hotel', label: 'Hotel', placeholder: 'Nome do hotel' },
-  { key: 'id_reserva', label: 'ID da reserva', placeholder: 'Identificador externo' },
-  { key: 'nome', label: 'Passageiro', placeholder: 'Primeiro e último nome' },
-  { key: 'tipo', label: 'Tipo de passageiro', placeholder: 'A, C ou I' },
-  { key: 'observacao', label: 'Observação', placeholder: 'Privativo ou vazio', type: 'textarea' },
+  { key: 'endereco', label: 'Endereço', placeholder: 'Endereço completo' },
+  { key: 'pax_adulto', label: 'Qtd. adultos', placeholder: 'Quantidade de adultos' },
+  { key: 'pax_crianca', label: 'Qtd. crianças', placeholder: 'Quantidade de crianças' },
+  { key: 'pax_bebe', label: 'Qtd. bebês', placeholder: 'Quantidade de bebês' },
+  { key: 'observacoes', label: 'Observações', placeholder: 'Detalhes adicionais', type: 'textarea' },
 ];
 
 export function DetectedFieldsPreview({
@@ -49,6 +55,35 @@ export function DetectedFieldsPreview({
   isApplying = false,
 }: DetectedFieldsPreviewProps) {
   const hasAnyField = useMemo(() => Object.values(data).some((value) => Boolean(value && value.trim())), [data]);
+  const inputRefs = useRef<
+    Partial<Record<ExtractedReservationFieldKey, HTMLInputElement | HTMLTextAreaElement | null>>
+  >({});
+  const focusHandledRef = useRef(false);
+
+  useEffect(() => {
+    focusHandledRef.current = false;
+  }, [data]);
+
+  useEffect(() => {
+    if (focusHandledRef.current) {
+      return;
+    }
+
+    const missingField = fieldConfigurations.find((field) => {
+      const currentValue = data[field.key] ?? '';
+      return !currentValue.trim();
+    });
+    if (!missingField) {
+      focusHandledRef.current = true;
+      return;
+    }
+
+    const target = inputRefs.current[missingField.key];
+    if (target && document.activeElement !== target) {
+      target.focus();
+      focusHandledRef.current = true;
+    }
+  }, [data]);
 
   if (!hasAnyField) {
     return (
@@ -86,22 +121,33 @@ export function DetectedFieldsPreview({
           const value = data[field.key] ?? '';
           const error = errors[field.key];
           const hasError = Boolean(error);
+          const isMissing = !value.trim();
 
           return (
             <div key={field.key} className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor={`detected-${field.key}`}>
-                {field.label}
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700" htmlFor={`detected-${field.key}`}>
+                <span>{field.label}</span>
+                {isMissing ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                    Faltando
+                  </span>
+                ) : null}
               </label>
               {field.type === 'textarea' ? (
                 <textarea
                   id={`detected-${field.key}`}
                   value={value}
                   onChange={handleInputChange(field.key)}
+                  ref={(element) => {
+                    inputRefs.current[field.key] = element;
+                  }}
                   rows={3}
                   className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
                     hasError
                       ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
-                      : 'border-slate-300 focus:border-blue-500'
+                      : isMissing
+                        ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
+                        : 'border-slate-300 focus:border-blue-500'
                   }`}
                   placeholder={field.placeholder}
                   aria-invalid={hasError}
@@ -113,10 +159,15 @@ export function DetectedFieldsPreview({
                   type="text"
                   value={value}
                   onChange={handleInputChange(field.key)}
+                  ref={(element) => {
+                    inputRefs.current[field.key] = element;
+                  }}
                   className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
                     hasError
                       ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
-                      : 'border-slate-300 focus:border-blue-500'
+                      : isMissing
+                        ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
+                        : 'border-slate-300 focus:border-blue-500'
                   }`}
                   placeholder={field.placeholder}
                   aria-invalid={hasError}

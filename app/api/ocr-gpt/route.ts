@@ -6,28 +6,34 @@ import type { ExtractedReservation } from '@/types/ocr-gpt';
 
 export const runtime = 'nodejs';
 
-const SYSTEM_PROMPT = `Você extrai dados de reservas (prints/sistemas de operadoras como Taípe).
-Retorne SOMENTE JSON válido. Datas YYYY-MM-DD, horas HH:mm.
-Campos:
-- operadora
-- data_chegada_bps
-- data_saida_bps
-- ident (BPS | AA/TR | BUE | BUE/A | BUE/T)
-- voo_chegada (ex: "LA 3600")
-- voo_saida (ex: "LA 3601")
-- hora_chegada
-- hora_saida
+const SYSTEM_PROMPT = `Você extrai dados de reservas a partir de e-mails, imagens e PDFs.
+Retorne SOMENTE JSON válido. Datas no formato YYYY-MM-DD e horários HH:mm.
+Campos obrigatórios no JSON:
+- operador
+- origem_operadora
+- localizador
+- booking_code
+- passageiro_nome
+- passageiro_sobrenome
+- passageiro_full_name
+- servico
+- data
+- hora_coleta
+- hora_retorno
+- voo_chegada
+- voo_partida
 - hotel
-- id_reserva   // use sempre o "ID Externo" quando houver
-- nome         // apenas primeiro e último
-- tipo         // A (>=11), C (6–10), I (<=5)
-- observacao   // "Privativo" se for privativo; "" se REGULAR
-Regras IDENT:
-- Hotel em Porto Seguro → BPS
-- Hotel em Arraial/Trancoso/Caraíva → AA/TR
-- Passageiro argentino em Porto Seguro → BUE
-- Argentino em Arraial → BUE/A ; em Trancoso → BUE/T
-Se um campo não constar, use null. Não invente valores.`;
+- endereco
+- pax_adulto
+- pax_crianca
+- pax_bebe
+- observacoes
+Regras adicionais:
+- Use null quando um campo não existir ou não puder ser identificado.
+- Se localizar apenas o nome completo, preencha passageiro_full_name e deixe nome/sobrenome individuais como null.
+- Se houver múltiplos localizadores, prefira o principal exibido; preencha booking_code com códigos alternativos, se existir.
+- Para pax_* utilize números inteiros (quantidade de passageiros).
+- Não invente valores. Retorne somente o que estiver explícito no material recebido.`;
 
 const SUPPORTED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -173,12 +179,12 @@ export async function POST(request: Request) {
   } else if (fileEntry instanceof File) {
     const mimeType = fileEntry.type || 'application/octet-stream';
     if (!SUPPORTED_MIME_TYPES.includes(mimeType)) {
-      logRouteError('unsupported_media_type', requestId, 'Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.');
-      return makeJsonError(415, 'unsupported_media_type', 'Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.', requestId);
+      logRouteError('unsupported_media_type', requestId, 'Formato não suportado (use PNG, JPG ou PDF).');
+      return makeJsonError(415, 'unsupported_media_type', 'Formato não suportado (use PNG, JPG ou PDF).', requestId);
     }
     if (fileEntry.size > MAX_FILE_SIZE_BYTES) {
-      logRouteError('payload_too_large', requestId, 'Arquivo muito grande. Limite de 10MB.');
-      return makeJsonError(413, 'payload_too_large', 'Arquivo muito grande. Limite de 10MB.', requestId);
+      logRouteError('payload_too_large', requestId, 'Arquivo maior que 10 MB.');
+      return makeJsonError(413, 'payload_too_large', 'Arquivo maior que 10 MB.', requestId);
     }
 
     const dataUrl = await fileToDataURL(fileEntry);
