@@ -112,7 +112,7 @@ async function callModelWithTimeout(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {
-    return await openai.chat.completions.create({ ...payload, signal: controller.signal });
+    return await openai.chat.completions.create(payload, { signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
