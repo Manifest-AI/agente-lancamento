@@ -1,3 +1,25 @@
+export type ExtractedPassenger = {
+  nome?: string | null;
+  full_name?: string | null;
+  idade?: number | null;
+  age?: number | null;
+  tipo?: string | null;
+  classificacao?: string | null;
+  nacionalidade?: string | null;
+  documento?: string | null;
+  telefone?: string | null;
+  origem?: string | null;
+};
+
+export type ExtractedFlightSegment = {
+  origem?: string | null;
+  destino?: string | null;
+  data?: string | null;
+  horario_partida?: string | null;
+  horario_chegada?: string | null;
+  voo?: string | null;
+};
+
 export type ExtractedReservation = {
   operador: string | null;
   origem_operadora: string | null;
@@ -18,6 +40,10 @@ export type ExtractedReservation = {
   pax_crianca: string | number | null;
   pax_bebe: string | number | null;
   observacoes: string | null;
+  id_externo?: string | null;
+  id_externo2?: string | null;
+  passageiros?: ExtractedPassenger[] | null;
+  segmentos?: ExtractedFlightSegment[] | null;
 };
 
 export type ExtractedReservationFieldKey = keyof ExtractedReservation;

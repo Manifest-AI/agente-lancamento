@@ -3,87 +3,143 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 import type {
-  ExtractedReservationDraft,
-  ExtractedReservationErrors,
-  ExtractedReservationFieldKey,
-} from '@/types/ocr-gpt';
+  ReservaPreviewDraft,
+  ReservaPreviewErrors,
+  ReservaPreviewPassenger,
+} from '@/app/nova-reserva/mapReservaToForm';
 
 export type DetectedFieldsPreviewProps = {
-  data: ExtractedReservationDraft;
-  errors: ExtractedReservationErrors;
-  onChange: (key: ExtractedReservationFieldKey, value: string) => void;
+  data: ReservaPreviewDraft;
+  errors: ReservaPreviewErrors;
+  onFieldChange: <T extends keyof Omit<ReservaPreviewDraft, 'passageiros'>>(field: T, value: string) => void;
+  onPassengerChange: (index: number, field: keyof ReservaPreviewPassenger, value: string) => void;
+  onPassengerAdd: () => void;
+  onPassengerRemove: (index: number) => void;
   onApply: () => void;
   onRetry: () => void;
   onDiscard: () => void;
   isApplying?: boolean;
 };
 
-const fieldConfigurations: Array<{
-  key: ExtractedReservationFieldKey;
-  label: string;
-  placeholder?: string;
-  type?: 'text' | 'textarea';
-}> = [
-  { key: 'operador', label: 'Operador', placeholder: 'Nome do operador' },
-  { key: 'origem_operadora', label: 'Origem (operadora)', placeholder: 'Origem fornecida pela operadora' },
-  { key: 'localizador', label: 'Localizador', placeholder: 'Código localizador' },
-  { key: 'booking_code', label: 'Booking code', placeholder: 'Código alternativo da reserva' },
-  { key: 'passageiro_nome', label: 'Nome do passageiro', placeholder: 'Primeiro nome' },
-  { key: 'passageiro_sobrenome', label: 'Sobrenome do passageiro', placeholder: 'Último nome' },
-  { key: 'passageiro_full_name', label: 'Nome completo', placeholder: 'Nome completo do passageiro' },
-  { key: 'servico', label: 'Serviço', placeholder: 'Transfer, passeio, etc.' },
-  { key: 'data', label: 'Data', placeholder: 'yyyy-mm-dd' },
-  { key: 'hora_coleta', label: 'Hora de coleta', placeholder: 'hh:mm' },
-  { key: 'hora_retorno', label: 'Hora de retorno', placeholder: 'hh:mm' },
-  { key: 'voo_chegada', label: 'Voo de chegada', placeholder: 'Ex.: LA3600' },
-  { key: 'voo_partida', label: 'Voo de partida', placeholder: 'Ex.: LA3601' },
-  { key: 'hotel', label: 'Hotel', placeholder: 'Nome do hotel' },
-  { key: 'endereco', label: 'Endereço', placeholder: 'Endereço completo' },
-  { key: 'pax_adulto', label: 'Qtd. adultos', placeholder: 'Quantidade de adultos' },
-  { key: 'pax_crianca', label: 'Qtd. crianças', placeholder: 'Quantidade de crianças' },
-  { key: 'pax_bebe', label: 'Qtd. bebês', placeholder: 'Quantidade de bebês' },
-  { key: 'observacoes', label: 'Observações', placeholder: 'Detalhes adicionais', type: 'textarea' },
-];
+type FocusKey =
+  | 'operadora'
+  | 'dataChegada'
+  | 'dataSaida'
+  | 'ident'
+  | 'vooChegada'
+  | 'vooSaida'
+  | 'horarioChegada'
+  | 'horarioSaida'
+  | 'hotel'
+  | 'numeroReserva'
+  | 'regime'
+  | `passageiro-${number}-nome`
+  | `passageiro-${number}-classificacao`;
+
+function isMissingValue(value: string) {
+  return !value.trim();
+}
 
 export function DetectedFieldsPreview({
   data,
   errors,
-  onChange,
+  onFieldChange,
+  onPassengerChange,
+  onPassengerAdd,
+  onPassengerRemove,
   onApply,
   onRetry,
   onDiscard,
   isApplying = false,
 }: DetectedFieldsPreviewProps) {
-  const hasAnyField = useMemo(() => Object.values(data).some((value) => Boolean(value && value.trim())), [data]);
-  const inputRefs = useRef<
-    Partial<Record<ExtractedReservationFieldKey, HTMLInputElement | HTMLTextAreaElement | null>>
-  >({});
+  const hasAnyField = useMemo(() => {
+    const baseFields = [
+      data.operadora,
+      data.dataChegada,
+      data.dataSaida,
+      data.ident,
+      data.vooChegada,
+      data.vooSaida,
+      data.horarioChegada,
+      data.horarioSaida,
+      data.hotel,
+      data.numeroReserva,
+      data.regime,
+    ].some((value) => Boolean(value && value.trim()));
+
+    const passengerFields = data.passageiros.some(
+      (passageiro) => passageiro.nome.trim() || passageiro.classificacao.trim(),
+    );
+
+    return baseFields || passengerFields;
+  }, [data]);
+
+  const focusRefs = useRef<Partial<Record<FocusKey, HTMLInputElement | HTMLSelectElement | null>>>({});
   const focusHandledRef = useRef(false);
+
+  const orderedFields = useMemo(() => {
+    const entries: Array<{ key: FocusKey; value: string; error?: string }> = [
+      { key: 'operadora', value: data.operadora, error: errors.operadora },
+      { key: 'dataChegada', value: data.dataChegada, error: errors.dataChegada },
+      { key: 'dataSaida', value: data.dataSaida, error: errors.dataSaida },
+      { key: 'ident', value: data.ident, error: errors.ident },
+      { key: 'vooChegada', value: data.vooChegada, error: errors.vooChegada },
+      { key: 'vooSaida', value: data.vooSaida, error: errors.vooSaida },
+      { key: 'horarioChegada', value: data.horarioChegada, error: errors.horarioChegada },
+      { key: 'horarioSaida', value: data.horarioSaida, error: errors.horarioSaida },
+      { key: 'hotel', value: data.hotel, error: errors.hotel },
+      { key: 'numeroReserva', value: data.numeroReserva, error: errors.numeroReserva },
+    ];
+
+    data.passageiros.forEach((passageiro, index) => {
+      entries.push({
+        key: `passageiro-${index}-nome`,
+        value: passageiro.nome,
+        error: errors.passageiros[index]?.nome,
+      });
+      entries.push({
+        key: `passageiro-${index}-classificacao`,
+        value: passageiro.classificacao,
+        error: errors.passageiros[index]?.classificacao,
+      });
+    });
+
+    entries.push({ key: 'regime', value: data.regime, error: errors.regime });
+
+    return entries;
+  }, [data, errors]);
 
   useEffect(() => {
     focusHandledRef.current = false;
-  }, [data]);
+  }, [data, errors]);
 
   useEffect(() => {
     if (focusHandledRef.current) {
       return;
     }
 
-    const missingField = fieldConfigurations.find((field) => {
-      const currentValue = data[field.key] ?? '';
-      return !currentValue.trim();
-    });
-    if (!missingField) {
+    const target = orderedFields.find((field) => field.error || isMissingValue(field.value));
+    if (!target) {
       focusHandledRef.current = true;
       return;
     }
 
-    const target = inputRefs.current[missingField.key];
-    if (target && document.activeElement !== target) {
-      target.focus();
+    const element = focusRefs.current[target.key];
+    if (element && document.activeElement !== element) {
+      element.focus();
       focusHandledRef.current = true;
     }
-  }, [data]);
+  }, [orderedFields]);
+
+  const handleTopLevelChange = (field: keyof Omit<ReservaPreviewDraft, 'passageiros'>) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      onFieldChange(field, event.target.value);
+    };
+
+  const handlePassengerInputChange = (index: number, field: keyof ReservaPreviewPassenger) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      onPassengerChange(index, field, event.target.value);
+    };
 
   if (!hasAnyField) {
     return (
@@ -109,72 +165,53 @@ export function DetectedFieldsPreview({
     );
   }
 
-  const handleInputChange = (key: ExtractedReservationFieldKey) =>
-    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      onChange(key, event.target.value);
-    };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="grid gap-4 md:grid-cols-2">
-        {fieldConfigurations.map((field) => {
-          const value = data[field.key] ?? '';
-          const error = errors[field.key];
-          const hasError = Boolean(error);
-          const isMissing = !value.trim();
-
+        {[{ key: 'operadora', label: 'Operadora', placeholder: 'Nome da operadora' },
+          { key: 'dataChegada', label: 'Data de chegada (em Porto Seguro)', placeholder: 'YYYY-MM-DD' },
+          { key: 'dataSaida', label: 'Data de saída (de Porto Seguro)', placeholder: 'YYYY-MM-DD' },
+          { key: 'ident', label: 'IDENT', placeholder: 'Ex.: BPS, AA/TR, BUE' },
+          { key: 'vooChegada', label: 'Voô de chegada (em Porto Seguro)', placeholder: 'Ex.: LA3600' },
+          { key: 'vooSaida', label: 'Voô de saída (de Porto Seguro)', placeholder: 'Ex.: LA3343' },
+          { key: 'horarioChegada', label: 'Horário do voô (Chegada em Porto Seguro)', placeholder: 'HH:mm' },
+          { key: 'horarioSaida', label: 'Horário do voô (Saída de Porto Seguro)', placeholder: 'HH:mm' },
+          { key: 'hotel', label: 'Nome do Hotel', placeholder: 'Nome do hotel' },
+          { key: 'numeroReserva', label: 'N° da reserva (ID externo)', placeholder: 'Código da reserva' },
+        ].map((field) => {
+          const value = data[field.key as keyof typeof data] as string;
+          const error = errors[field.key as keyof typeof errors] as string | undefined;
+          const inputKey = field.key as FocusKey;
           return (
             <div key={field.key} className="flex flex-col gap-2">
               <label className="flex items-center gap-2 text-sm font-medium text-slate-700" htmlFor={`detected-${field.key}`}>
                 <span>{field.label}</span>
-                {isMissing ? (
+                {isMissingValue(value) ? (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
                     Faltando
                   </span>
                 ) : null}
               </label>
-              {field.type === 'textarea' ? (
-                <textarea
-                  id={`detected-${field.key}`}
-                  value={value}
-                  onChange={handleInputChange(field.key)}
-                  ref={(element) => {
-                    inputRefs.current[field.key] = element;
-                  }}
-                  rows={3}
-                  className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
-                    hasError
-                      ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
-                      : isMissing
-                        ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
-                        : 'border-slate-300 focus:border-blue-500'
-                  }`}
-                  placeholder={field.placeholder}
-                  aria-invalid={hasError}
-                  aria-errormessage={hasError ? `detected-${field.key}-error` : undefined}
-                />
-              ) : (
-                <input
-                  id={`detected-${field.key}`}
-                  type="text"
-                  value={value}
-                  onChange={handleInputChange(field.key)}
-                  ref={(element) => {
-                    inputRefs.current[field.key] = element;
-                  }}
-                  className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
-                    hasError
-                      ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
-                      : isMissing
-                        ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
-                        : 'border-slate-300 focus:border-blue-500'
-                  }`}
-                  placeholder={field.placeholder}
-                  aria-invalid={hasError}
-                  aria-errormessage={hasError ? `detected-${field.key}-error` : undefined}
-                />
-              )}
-              {hasError ? (
+              <input
+                id={`detected-${field.key}`}
+                type="text"
+                value={value}
+                onChange={handleTopLevelChange(field.key as keyof Omit<ReservaPreviewDraft, 'passageiros'>)}
+                ref={(element) => {
+                  focusRefs.current[inputKey] = element;
+                }}
+                className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                  error
+                    ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                    : isMissingValue(value)
+                      ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
+                      : 'border-slate-300 focus:border-blue-500'
+                }`}
+                placeholder={field.placeholder}
+                aria-invalid={Boolean(error)}
+                aria-errormessage={error ? `detected-${field.key}-error` : undefined}
+              />
+              {error ? (
                 <span id={`detected-${field.key}-error`} className="text-xs font-medium text-rose-600">
                   {error}
                 </span>
@@ -182,6 +219,158 @@ export function DetectedFieldsPreview({
             </div>
           );
         })}
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Passageiros</h3>
+          <button
+            type="button"
+            onClick={onPassengerAdd}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            Adicionar passageiro
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {data.passageiros.map((passageiro, index) => {
+            const passengerErrors = errors.passageiros[index] ?? {};
+            const nameKey = `passageiro-${index}-nome` as FocusKey;
+            const classKey = `passageiro-${index}-classificacao` as FocusKey;
+
+            return (
+              <div
+                key={`passageiro-${index}`}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <span>{`Passageiro ${index + 1}`}</span>
+                    {isMissingValue(passageiro.nome) || isMissingValue(passageiro.classificacao) ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                        Faltando
+                      </span>
+                    ) : null}
+                  </div>
+                  {data.passageiros.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => onPassengerRemove(index)}
+                      className="text-xs font-medium text-rose-600 transition hover:text-rose-700"
+                    >
+                      Remover
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-[2fr_1fr]">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor={`detected-passenger-name-${index}`}>
+                      Nome (primeiro e último)
+                    </label>
+                    <input
+                      id={`detected-passenger-name-${index}`}
+                      type="text"
+                      value={passageiro.nome}
+                      onChange={handlePassengerInputChange(index, 'nome')}
+                      ref={(element) => {
+                        focusRefs.current[nameKey] = element;
+                      }}
+                      className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                        passengerErrors.nome
+                          ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                          : isMissingValue(passageiro.nome)
+                            ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
+                            : 'border-slate-300 focus:border-blue-500'
+                      }`}
+                      placeholder="Ex.: MARTA BRANDAO"
+                      aria-invalid={Boolean(passengerErrors.nome)}
+                      aria-errormessage={passengerErrors.nome ? `detected-passenger-name-${index}-error` : undefined}
+                    />
+                    {passengerErrors.nome ? (
+                      <span id={`detected-passenger-name-${index}-error`} className="text-xs font-medium text-rose-600">
+                        {passengerErrors.nome}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor={`detected-passenger-class-${index}`}>
+                      (ADT/CHD/INF)
+                    </label>
+                    <select
+                      id={`detected-passenger-class-${index}`}
+                      value={passageiro.classificacao}
+                      onChange={handlePassengerInputChange(index, 'classificacao')}
+                      ref={(element) => {
+                        focusRefs.current[classKey] = element;
+                      }}
+                      className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                        passengerErrors.classificacao
+                          ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                          : isMissingValue(passageiro.classificacao)
+                            ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
+                            : 'border-slate-300 focus:border-blue-500'
+                      }`}
+                      aria-invalid={Boolean(passengerErrors.classificacao)}
+                      aria-errormessage={
+                        passengerErrors.classificacao ? `detected-passenger-class-${index}-error` : undefined
+                      }
+                    >
+                      <option value="">Selecione</option>
+                      <option value="A">ADT</option>
+                      <option value="C">CHD</option>
+                      <option value="I">INF</option>
+                    </select>
+                    {passengerErrors.classificacao ? (
+                      <span id={`detected-passenger-class-${index}-error`} className="text-xs font-medium text-rose-600">
+                        {passengerErrors.classificacao}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 md:w-1/2">
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700" htmlFor="detected-regime">
+          <span>Regime</span>
+          {isMissingValue(data.regime) ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+              Faltando
+            </span>
+          ) : null}
+        </label>
+        <select
+          id="detected-regime"
+          value={data.regime}
+          onChange={handleTopLevelChange('regime')}
+          ref={(element) => {
+            focusRefs.current.regime = element;
+          }}
+          className={`rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+            errors.regime
+              ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+              : isMissingValue(data.regime)
+                ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200'
+                : 'border-slate-300 focus:border-blue-500'
+          }`}
+          aria-invalid={Boolean(errors.regime)}
+          aria-errormessage={errors.regime ? 'detected-regime-error' : undefined}
+        >
+          <option value="">Selecione</option>
+          <option value="Privativo">Privativo</option>
+          <option value="REGULAR">REGULAR</option>
+        </select>
+        {errors.regime ? (
+          <span id="detected-regime-error" className="text-xs font-medium text-rose-600">
+            {errors.regime}
+          </span>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
