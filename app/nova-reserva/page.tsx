@@ -338,6 +338,14 @@ export default function NovaReservaPage() {
         updated.passengerType = mapped.passengerType;
       }
 
+      if (mapped.origin) {
+        updated.origin = mapped.origin.toUpperCase();
+      }
+
+      if (mapped.destination) {
+        updated.destination = mapped.destination.toUpperCase();
+      }
+
       if (mapped.departureDate) {
         const displayDepartureDate = fromDatabaseDate(mapped.departureDate);
         if (displayDepartureDate) {
@@ -362,6 +370,10 @@ export default function NovaReservaPage() {
 
       if (mapped.reservationCode) {
         updated.reservationCode = mapped.reservationCode.toUpperCase();
+      }
+
+      if (mapped.airline) {
+        updated.airline = mapped.airline.trim();
       }
 
       if (mapped.notes) {
