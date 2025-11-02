@@ -532,6 +532,12 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     if (!errorDetails) {
       return;
     }
+
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      onNotify?.({ type: 'error', message: 'Copie manualmente os detalhes.' });
+      return;
+    }
+
     const payload = {
       code: errorDetails.code,
       message: errorDetails.message,
