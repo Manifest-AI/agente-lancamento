@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import ConfirmEmailNotice from '@/app/(auth)/components/ConfirmEmailNotice';
+import { autoConfirmUserServerAction } from '@/app/(auth)/actions';
 import { useAuth } from '@/hooks/useAuth';
+import { requireEmailConfirmation as requireEmailConfirmationFlag } from '@/lib/env';
 import { supabase } from '@/lib/supabaseClient';
 
 function mapSignInError(message: string) {
@@ -31,6 +33,7 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmNotice, setShowConfirmNotice] = useState(false);
   const [confirmationEmail, setConfirmationEmail] = useState('');
+  const requireConfirmation = requireEmailConfirmationFlag;
 
   useEffect(() => {
     if (user) {
@@ -82,6 +85,32 @@ export default function LoginPage() {
         const mappedError = mapSignInError(signInError.message);
 
         if (mappedError === 'confirm-email') {
+          if (!requireConfirmation) {
+            const autoConfirmResult = await autoConfirmUserServerAction({
+              email: sanitizedEmail,
+            });
+
+            if (autoConfirmResult.success) {
+              const { error: retrySignInError } =
+                await supabase.auth.signInWithPassword({
+                  email: sanitizedEmail,
+                  password,
+                });
+
+              if (!retrySignInError) {
+                router.replace('/dashboard');
+                return;
+              }
+            }
+
+            setError(
+              autoConfirmResult.success
+                ? 'Sua conta foi confirmada, mas não foi possível entrar automaticamente. Tente novamente.'
+                : autoConfirmResult.error,
+            );
+            return;
+          }
+
           setConfirmationEmail(sanitizedEmail);
           setShowConfirmNotice(true);
           return;

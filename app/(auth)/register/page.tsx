@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import ConfirmEmailNotice from '@/app/(auth)/components/ConfirmEmailNotice';
+import { autoConfirmUserServerAction } from '@/app/(auth)/actions';
 import { supabase } from '@/lib/supabaseClient';
 import { requireEmailConfirmation as requireEmailConfirmationFlag } from '@/lib/env';
 
@@ -39,6 +40,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [view, setView] = useState<'form' | 'confirm'>('form');
   const [confirmationEmail, setConfirmationEmail] = useState('');
@@ -78,6 +80,7 @@ export default function RegisterPage() {
 
     setError(null);
     setIsSubmitting(true);
+    setSuccessMessage(null);
 
     try {
       const passwordHash = await hashPassword(password);
@@ -110,10 +113,45 @@ export default function RegisterPage() {
         throw new Error('Não foi possível salvar seus dados. Tente novamente.');
       }
 
-      if (data.session || !requireConfirmation) {
+      if (data.session) {
+        setSuccessMessage('Conta criada com sucesso! Redirecionando...');
         if (typeof window !== 'undefined') {
-          window.alert('Conta criada');
+          window.alert('Conta criada com sucesso!');
         }
+        router.replace('/dashboard');
+        return;
+      }
+
+      if (!requireConfirmation) {
+        const autoConfirmResult = await autoConfirmUserServerAction({
+          email: sanitizedEmail,
+          userId,
+        });
+
+        if (!autoConfirmResult.success) {
+          throw new Error(
+            autoConfirmResult.error ??
+              'Não foi possível ativar sua conta automaticamente. Tente novamente.',
+          );
+        }
+
+        const { error: signInAfterConfirmError } =
+          await supabase.auth.signInWithPassword({
+            email: sanitizedEmail,
+            password,
+          });
+
+        if (signInAfterConfirmError) {
+          throw new Error(
+            'Sua conta foi confirmada, mas não foi possível autenticar automaticamente. Tente fazer login.',
+          );
+        }
+
+        setSuccessMessage('Conta criada com sucesso! Redirecionando...');
+        if (typeof window !== 'undefined') {
+          window.alert('Conta criada com sucesso!');
+        }
+
         router.replace('/dashboard');
         return;
       }
@@ -140,6 +178,7 @@ export default function RegisterPage() {
             onChangeEmail={() => {
               setView('form');
               setError(null);
+              setSuccessMessage(null);
             }}
           />
         ) : (
@@ -209,6 +248,11 @@ export default function RegisterPage() {
               {error ? (
                 <p className="text-sm text-red-600" role="alert">
                   {error}
+                </p>
+              ) : null}
+              {successMessage ? (
+                <p className="text-sm text-green-600" role="status">
+                  {successMessage}
                 </p>
               ) : null}
 
