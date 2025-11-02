@@ -15,3 +15,8 @@ A autenticação utiliza Supabase. Configure os valores abaixo conforme o ambien
 | `INTERNAL_API_SECRET` | Segredo utilizado para proteger a rota interna de auto-confirmação. | Defina um valor seguro. | Pode utilizar um valor simples. |
 
 > **Kill switch:** defina `REQUIRE_EMAIL_CONFIRMATION=true` (e opcionalmente `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=true`) para voltar a exigir confirmação de e-mail imediatamente.
+
+## Notas de release - Listagem de reservas
+- A página `/reservas` agora exibe uma tabela responsiva com as principais colunas para operação diária: passageiro, operadora, IDENT, hotel, origem, destino, companhia aérea, datas/horários de ida e volta, status, código da reserva e data de criação.
+- Filtros disponíveis: busca livre por passageiro/código/IDENT/localizador, operadora, hotel, IDENT dedicado, intervalo de datas (aplicado em `data_voo_ida` ou `created_at`). O estado é preservado na URL.
+- Para estender a tabela, utilize os utilitários em `lib/queries/reservas.ts` para incluir novas colunas/filtros e ajuste os componentes em `app/reservas/_components` conforme necessário.
