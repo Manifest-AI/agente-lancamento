@@ -556,10 +556,6 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const isPdf = selectedFile?.type === 'application/pdf';
   const canUseClipboard = clipboardSupport === 'supported';
 
-  if (!isOpen) {
-    return null;
-  }
-
   const handleCopyErrorDetails = useCallback(async () => {
     if (!errorDetails) {
       return;
@@ -607,6 +603,10 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       onNotify?.({ type: 'error', message: 'Não foi possível selecionar o texto.' });
     }
   }, [onNotify]);
+
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
