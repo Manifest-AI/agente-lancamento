@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import bcrypt from 'bcryptjs';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function RegisterPage() {
@@ -29,6 +30,17 @@ export default function RegisterPage() {
     setError(null);
     setIsSubmitting(true);
 
+    let passwordHash: string;
+
+    try {
+      passwordHash = await bcrypt.hash(password, 10);
+    } catch (hashError) {
+      console.error('Erro ao gerar hash da senha:', hashError);
+      setError('Não foi possível processar a senha. Tente novamente.');
+      setIsSubmitting(false);
+      return;
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -52,12 +64,14 @@ export default function RegisterPage() {
       id: userId,
       name,
       email,
+      password_hash: passwordHash,
       created_at: new Date().toISOString(),
     });
 
     setIsSubmitting(false);
 
     if (insertError) {
+      console.error('Erro ao salvar usuário no banco de dados:', insertError);
       setError(insertError.message);
       return;
     }
