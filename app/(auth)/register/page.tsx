@@ -3,8 +3,20 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import bcrypt from 'bcryptjs';
 import { supabase } from '@/lib/supabaseClient';
+
+async function hashPassword(password: string) {
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('A API de criptografia não está disponível neste navegador.');
+  }
+
+  const encoder = new TextEncoder();
+  const encodedPassword = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encodedPassword);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -33,7 +45,7 @@ export default function RegisterPage() {
     let passwordHash: string;
 
     try {
-      passwordHash = await bcrypt.hash(password, 10);
+      passwordHash = await hashPassword(password);
     } catch (hashError) {
       console.error('Erro ao gerar hash da senha:', hashError);
       setError('Não foi possível processar a senha. Tente novamente.');
