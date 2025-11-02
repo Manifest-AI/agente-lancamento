@@ -204,6 +204,20 @@ export async function POST(request: Request) {
       messages,
     });
 
+    if (!('choices' in response)) {
+      logRouteError(
+        'openai_upstream_error',
+        requestId,
+        'Resposta inesperada do provedor de IA (stream sem suporte).',
+      );
+      return makeJsonError(
+        502,
+        'openai_upstream_error',
+        'Resposta inesperada do provedor de IA.',
+        requestId,
+      );
+    }
+
     const content = response.choices?.[0]?.message?.content;
     if (!content) {
       logRouteError('openai_upstream_error', requestId, 'Resposta sem conteúdo do provedor de IA.');
