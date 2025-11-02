@@ -1,11 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
+import { ImportReservaButton } from '@/components/ImportReservaButton';
+import { ImportReservaModal } from '@/components/ImportReservaModal';
+import type { ReservaFields } from '@/lib/extractors/reserva';
 
 type ReservationFormData = {
   passengerName: string;
@@ -78,6 +81,40 @@ function toDatabaseDate(value: string) {
   return `${year}-${month}-${day}`;
 }
 
+function fromDatabaseDate(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+}
+
+function normalizePassengerType(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.toLowerCase();
+  if (normalized.includes('adult')) {
+    return 'adulto';
+  }
+
+  if (normalized.includes('cri')) {
+    return 'crianca';
+  }
+
+  if (normalized.includes('beb')) {
+    return 'bebe';
+  }
+
+  return null;
+}
+
 function isValidDate(value: string) {
   const [day, month, year] = value.split('/').map(Number);
   if (!day || !month || !year) {
@@ -142,6 +179,22 @@ export default function NovaReservaPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setToast(null);
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [toast]);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = event.target;
@@ -270,9 +323,100 @@ export default function NovaReservaPage() {
     setFormData(initialFormState);
   };
 
+  const handleApplyImportedFields = (fields: ReservaFields) => {
+    setFormData((previous) => {
+      const updated = { ...previous };
+
+      if (fields.passengerName) {
+        updated.passengerName = fields.passengerName.trim();
+      }
+
+      if (fields.document) {
+        updated.document = formatDocumentInput(fields.document);
+      }
+
+      if (fields.passengerType) {
+        const normalizedType = normalizePassengerType(fields.passengerType);
+        if (normalizedType) {
+          updated.passengerType = normalizedType;
+        }
+      }
+
+      if (fields.origin) {
+        updated.origin = fields.origin.toUpperCase();
+      }
+
+      if (fields.destination) {
+        updated.destination = fields.destination.toUpperCase();
+      }
+
+      if (fields.departureDate) {
+        const displayDepartureDate = fromDatabaseDate(fields.departureDate);
+        if (displayDepartureDate) {
+          updated.departureDate = displayDepartureDate;
+        }
+      }
+
+      if (fields.departureTime) {
+        updated.departureTime = formatTimeInput(fields.departureTime);
+      }
+
+      if (fields.returnDate) {
+        const displayReturnDate = fromDatabaseDate(fields.returnDate);
+        if (displayReturnDate) {
+          updated.returnDate = displayReturnDate;
+        }
+      }
+
+      if (fields.returnTime) {
+        updated.returnTime = formatTimeInput(fields.returnTime);
+      }
+
+      if (fields.airline) {
+        updated.airline = fields.airline.trim();
+      }
+
+      if (fields.reservationCode) {
+        updated.reservationCode = fields.reservationCode.toUpperCase().trim();
+      }
+
+      if (fields.notes) {
+        updated.notes = fields.notes.trim();
+      }
+
+      return updated;
+    });
+
+    setToast({ type: 'success', message: 'Campos importados com sucesso. Revise antes de salvar.' });
+  };
+
+  const handleModalNotify = (payload: { type: 'success' | 'error'; message: string }) => {
+    setToast(payload);
+  };
+
   return (
     <ProtectedRoute>
       <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-10">
+        {toast && (
+          <div
+            role="status"
+            className={`fixed right-6 top-6 z-50 flex max-w-sm items-start gap-3 rounded-2xl border px-4 py-3 text-sm shadow-lg transition ${
+              toast.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-rose-200 bg-rose-50 text-rose-800'
+            }`}
+          >
+            <div className="flex-1">{toast.message}</div>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="ml-2 text-xs font-medium text-slate-500 transition hover:text-slate-700"
+            >
+              Fechar
+            </button>
+          </div>
+        )}
+
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-slate-500">Cadastro manual</p>
@@ -282,12 +426,15 @@ export default function NovaReservaPage() {
               com exceção das observações.
             </p>
           </div>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-          >
-            Voltar ao painel
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <ImportReservaButton onClick={() => setIsImportModalOpen(true)} />
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              Voltar ao painel
+            </Link>
+          </div>
         </header>
 
         <form onSubmit={handleSubmit} className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -517,6 +664,12 @@ export default function NovaReservaPage() {
             </button>
           </div>
         </form>
+        <ImportReservaModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          onApply={handleApplyImportedFields}
+          onNotify={handleModalNotify}
+        />
       </main>
     </ProtectedRoute>
   );
