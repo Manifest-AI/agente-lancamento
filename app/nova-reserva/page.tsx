@@ -8,7 +8,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { ImportReservaButton } from '@/components/ImportReservaButton';
 import { ImportReservaModal } from '@/components/ImportReservaModal';
-import type { ReservaFields } from '@/lib/extractors/reserva';
+import type { ExtractedReservation } from '@/types/ocr-gpt';
+import { mapExtractToForm } from './mapExtractToForm';
 
 type ReservationFormData = {
   passengerName: string;
@@ -323,65 +324,48 @@ export default function NovaReservaPage() {
     setFormData(initialFormState);
   };
 
-  const handleApplyImportedFields = (fields: ReservaFields) => {
+  const handleApplyImportedFields = (data: ExtractedReservation) => {
+    const mapped = mapExtractToForm(data);
+
     setFormData((previous) => {
       const updated = { ...previous };
 
-      if (fields.passengerName) {
-        updated.passengerName = fields.passengerName.trim();
+      if (mapped.passengerName) {
+        updated.passengerName = mapped.passengerName.trim();
       }
 
-      if (fields.document) {
-        updated.document = formatDocumentInput(fields.document);
+      if (mapped.passengerType) {
+        updated.passengerType = mapped.passengerType;
       }
 
-      if (fields.passengerType) {
-        const normalizedType = normalizePassengerType(fields.passengerType);
-        if (normalizedType) {
-          updated.passengerType = normalizedType;
-        }
-      }
-
-      if (fields.origin) {
-        updated.origin = fields.origin.toUpperCase();
-      }
-
-      if (fields.destination) {
-        updated.destination = fields.destination.toUpperCase();
-      }
-
-      if (fields.departureDate) {
-        const displayDepartureDate = fromDatabaseDate(fields.departureDate);
+      if (mapped.departureDate) {
+        const displayDepartureDate = fromDatabaseDate(mapped.departureDate);
         if (displayDepartureDate) {
           updated.departureDate = displayDepartureDate;
         }
       }
 
-      if (fields.departureTime) {
-        updated.departureTime = formatTimeInput(fields.departureTime);
+      if (mapped.departureTime) {
+        updated.departureTime = formatTimeInput(mapped.departureTime);
       }
 
-      if (fields.returnDate) {
-        const displayReturnDate = fromDatabaseDate(fields.returnDate);
+      if (mapped.returnDate) {
+        const displayReturnDate = fromDatabaseDate(mapped.returnDate);
         if (displayReturnDate) {
           updated.returnDate = displayReturnDate;
         }
       }
 
-      if (fields.returnTime) {
-        updated.returnTime = formatTimeInput(fields.returnTime);
+      if (mapped.returnTime) {
+        updated.returnTime = formatTimeInput(mapped.returnTime);
       }
 
-      if (fields.airline) {
-        updated.airline = fields.airline.trim();
+      if (mapped.reservationCode) {
+        updated.reservationCode = mapped.reservationCode.toUpperCase();
       }
 
-      if (fields.reservationCode) {
-        updated.reservationCode = fields.reservationCode.toUpperCase().trim();
-      }
-
-      if (fields.notes) {
-        updated.notes = fields.notes.trim();
+      if (mapped.notes) {
+        updated.notes = mapped.notes;
       }
 
       return updated;
