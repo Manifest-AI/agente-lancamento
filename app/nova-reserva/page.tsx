@@ -8,8 +8,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { ImportReservaButton } from '@/components/ImportReservaButton';
 import { ImportReservaModal } from '@/components/ImportReservaModal';
-import type { ExtractedReservation } from '@/types/ocr-gpt';
-import { mapExtractToForm } from './mapExtractToForm';
+import type { ReservaPreviewDraft } from './mapReservaToForm';
+import { mapPreviewToReservationForm } from './mapReservaToForm';
 
 type ReservationFormData = {
   passengerName: string;
@@ -324,8 +324,8 @@ export default function NovaReservaPage() {
     setFormData(initialFormState);
   };
 
-  const handleApplyImportedFields = (data: ExtractedReservation) => {
-    const mapped = mapExtractToForm(data);
+  const handleApplyImportedFields = (data: ReservaPreviewDraft) => {
+    const mapped = mapPreviewToReservationForm(data);
 
     setFormData((previous) => {
       const updated = { ...previous };

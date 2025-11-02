@@ -6,155 +6,28 @@ import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { DetectedFieldsPreview } from './DetectedFieldsPreview';
 import type {
   ExtractedReservation,
-  ExtractedReservationDraft,
-  ExtractedReservationErrors,
-  ExtractedReservationFieldKey,
 } from '@/types/ocr-gpt';
+import {
+  createEmptyPreview,
+  hasPreviewErrors,
+  mapReservaToForm,
+  validatePreview,
+} from '@/app/nova-reserva/mapReservaToForm';
+import type { ReservaPreviewDraft, ReservaPreviewErrors } from '@/app/nova-reserva/mapReservaToForm';
 
 export type ImportReservaModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onApply: (data: ExtractedReservation) => void;
+  onApply: (data: ReservaPreviewDraft) => void;
   onNotify?: (payload: { type: 'success' | 'error'; message: string }) => void;
 };
 
 const MAX_FILE_SIZE_MB = 10;
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_REGEX = /^\d{2}:\d{2}$/;
-const FLIGHT_REGEX = /^[A-Z]{2}\s?\d{3,4}$/;
-const INTEGER_REGEX = /^\d+$/;
-
-const emptyDraft: ExtractedReservationDraft = {
-  operador: '',
-  origem_operadora: '',
-  localizador: '',
-  booking_code: '',
-  passageiro_nome: '',
-  passageiro_sobrenome: '',
-  passageiro_full_name: '',
-  servico: '',
-  data: '',
-  hora_coleta: '',
-  hora_retorno: '',
-  voo_chegada: '',
-  voo_partida: '',
-  hotel: '',
-  endereco: '',
-  pax_adulto: '',
-  pax_crianca: '',
-  pax_bebe: '',
-  observacoes: '',
-};
-
-function coercePaxValue(value: string): string | number | null {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const numeric = Number(trimmed);
-  return Number.isFinite(numeric) ? numeric : trimmed;
-}
-
-function toDraft(data: ExtractedReservation): ExtractedReservationDraft {
+function createEmptyErrors(passengerCount: number): ReservaPreviewErrors {
   return {
-    operador: data.operador ?? '',
-    origem_operadora: data.origem_operadora ?? '',
-    localizador: data.localizador ?? '',
-    booking_code: data.booking_code ?? '',
-    passageiro_nome: data.passageiro_nome ?? '',
-    passageiro_sobrenome: data.passageiro_sobrenome ?? '',
-    passageiro_full_name: data.passageiro_full_name ?? '',
-    servico: data.servico ?? '',
-    data: data.data ?? '',
-    hora_coleta: data.hora_coleta ?? '',
-    hora_retorno: data.hora_retorno ?? '',
-    voo_chegada: data.voo_chegada ?? '',
-    voo_partida: data.voo_partida ?? '',
-    hotel: data.hotel ?? '',
-    endereco: data.endereco ?? '',
-    pax_adulto: data.pax_adulto != null ? String(data.pax_adulto) : '',
-    pax_crianca: data.pax_crianca != null ? String(data.pax_crianca) : '',
-    pax_bebe: data.pax_bebe != null ? String(data.pax_bebe) : '',
-    observacoes: data.observacoes ?? '',
+    passageiros: Array.from({ length: Math.max(passengerCount, 1) }, () => ({})),
   };
-}
-
-function fromDraft(draft: ExtractedReservationDraft): ExtractedReservation {
-  return {
-    operador: draft.operador.trim() || null,
-    origem_operadora: draft.origem_operadora.trim() || null,
-    localizador: draft.localizador.trim() || null,
-    booking_code: draft.booking_code.trim() || null,
-    passageiro_nome: draft.passageiro_nome.trim() || null,
-    passageiro_sobrenome: draft.passageiro_sobrenome.trim() || null,
-    passageiro_full_name: draft.passageiro_full_name.trim() || null,
-    servico: draft.servico.trim() || null,
-    data: draft.data.trim() || null,
-    hora_coleta: draft.hora_coleta.trim() || null,
-    hora_retorno: draft.hora_retorno.trim() || null,
-    voo_chegada: draft.voo_chegada.trim() || null,
-    voo_partida: draft.voo_partida.trim() || null,
-    hotel: draft.hotel.trim() || null,
-    endereco: draft.endereco.trim() || null,
-    pax_adulto: coercePaxValue(draft.pax_adulto),
-    pax_crianca: coercePaxValue(draft.pax_crianca),
-    pax_bebe: coercePaxValue(draft.pax_bebe),
-    observacoes: draft.observacoes.trim() || null,
-  };
-}
-
-function validateDraft(draft: ExtractedReservationDraft): ExtractedReservationErrors {
-  const errors: ExtractedReservationErrors = {};
-
-  const maybeDateFields: Array<ExtractedReservationFieldKey> = ['data'];
-  maybeDateFields.forEach((field) => {
-    const value = draft[field].trim();
-    if (value && !DATE_REGEX.test(value)) {
-      errors[field] = 'Use o formato yyyy-mm-dd.';
-    }
-  });
-
-  const maybeTimeFields: Array<ExtractedReservationFieldKey> = ['hora_coleta', 'hora_retorno'];
-  maybeTimeFields.forEach((field) => {
-    const value = draft[field].trim();
-    if (value && !TIME_REGEX.test(value)) {
-      errors[field] = 'Use o formato hh:mm.';
-    }
-  });
-
-  const maybeFlightFields: Array<ExtractedReservationFieldKey> = ['voo_chegada', 'voo_partida'];
-  maybeFlightFields.forEach((field) => {
-    const value = draft[field].trim();
-    if (value && !FLIGHT_REGEX.test(value.toUpperCase())) {
-      errors[field] = 'Informe o código do voo (ex.: LA3600).';
-    }
-  });
-
-  const paxFields: Array<ExtractedReservationFieldKey> = ['pax_adulto', 'pax_crianca', 'pax_bebe'];
-  paxFields.forEach((field) => {
-    const value = draft[field].trim();
-    if (value && !INTEGER_REGEX.test(value)) {
-      errors[field] = 'Informe um número inteiro.';
-    }
-  });
-
-  return errors;
-}
-
-function normalizeFieldValue(key: ExtractedReservationFieldKey, value: string) {
-  const trimmed = value;
-  if (
-    key === 'localizador' ||
-    key === 'booking_code' ||
-    key === 'voo_chegada' ||
-    key === 'voo_partida'
-  ) {
-    return trimmed.toUpperCase();
-  }
-
-  return trimmed;
 }
 
 async function readFileAsFormData(file: File) {
@@ -211,8 +84,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<ExtractorErrorDetails | null>(null);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
-  const [draft, setDraft] = useState<ExtractedReservationDraft>(emptyDraft);
-  const [errors, setErrors] = useState<ExtractedReservationErrors>({});
+  const [preview, setPreview] = useState<ReservaPreviewDraft>(() => createEmptyPreview());
+  const [errors, setErrors] = useState<ReservaPreviewErrors>(() => createEmptyErrors(1));
   const [extractedData, setExtractedData] = useState<ExtractedReservation | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [clipboardSupport, setClipboardSupport] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
@@ -289,8 +162,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrorMessage(null);
     setErrorDetails(null);
     setShowErrorDetails(false);
-    setDraft(emptyDraft);
-    setErrors({});
+    setPreview(createEmptyPreview());
+    setErrors(createEmptyErrors(1));
     setExtractedData(null);
     setModelName(null);
     setClipboardSupport('unknown');
@@ -434,16 +307,16 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           return;
         }
 
-        const nextDraft = toDraft(data);
-        const nextErrors = validateDraft(nextDraft);
-        setDraft(nextDraft);
+        const nextPreview = mapReservaToForm(data);
+        const nextErrors = validatePreview(nextPreview);
+        setPreview(nextPreview);
         setErrors(nextErrors);
         setExtractedData(data);
         setModelName(parsed?.model ?? null);
         setErrorDetails(null);
         setShowErrorDetails(false);
 
-        if (Object.keys(nextErrors).length) {
+        if (hasPreviewErrors(nextErrors)) {
           onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
         } else {
           onNotify?.({ type: 'success', message: 'Extração concluída. Revise e aplique os dados.' });
@@ -508,8 +381,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   };
 
   const handleRetry = () => {
-    setDraft(emptyDraft);
-    setErrors({});
+    setPreview(createEmptyPreview());
+    setErrors(createEmptyErrors(1));
     setExtractedData(null);
     setErrorMessage(null);
     setErrorDetails(null);
@@ -518,11 +391,70 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     errorDetailsRef.current = null;
   };
 
-  const handleEditableFieldChange = (key: ExtractedReservationFieldKey, value: string) => {
-    setDraft((previous) => {
-      const nextValue = normalizeFieldValue(key, value);
-      const updated = { ...previous, [key]: nextValue };
-      setErrors(validateDraft(updated));
+  const handleFieldChange = (field: keyof Omit<ReservaPreviewDraft, 'passageiros'>, value: string) => {
+    setPreview((previous) => {
+      const updated: ReservaPreviewDraft = { ...previous, [field]: value } as ReservaPreviewDraft;
+      setErrors(validatePreview(updated));
+      return updated;
+    });
+    setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
+    errorDetailsRef.current = null;
+  };
+
+  const handlePassengerChange = (index: number, field: keyof ReservaPreviewDraft['passageiros'][number], value: string) => {
+    setPreview((previous) => {
+      const nextPassengers: ReservaPreviewDraft['passageiros'] = previous.passageiros.map(
+        (passageiro, passengerIndex) => {
+          if (passengerIndex !== index) {
+            return passageiro;
+          }
+
+          if (field === 'classificacao') {
+            return {
+              ...passageiro,
+              classificacao: value as ReservaPreviewDraft['passageiros'][number]['classificacao'],
+            };
+          }
+
+          return { ...passageiro, nome: value };
+        },
+      );
+      const updated: ReservaPreviewDraft = { ...previous, passageiros: nextPassengers };
+      setErrors(validatePreview(updated));
+      return updated;
+    });
+    setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
+    errorDetailsRef.current = null;
+  };
+
+  const handlePassengerAdd = () => {
+    setPreview((previous) => {
+      const nextPassengers: ReservaPreviewDraft['passageiros'] = [
+        ...previous.passageiros,
+        { nome: '', classificacao: '' },
+      ];
+      const updated: ReservaPreviewDraft = { ...previous, passageiros: nextPassengers };
+      setErrors(validatePreview(updated));
+      return updated;
+    });
+    setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
+    errorDetailsRef.current = null;
+  };
+
+  const handlePassengerRemove = (index: number) => {
+    setPreview((previous) => {
+      if (previous.passageiros.length <= 1) {
+        return previous;
+      }
+      const nextPassengers = previous.passageiros.filter((_, passengerIndex) => passengerIndex !== index);
+      const updated: ReservaPreviewDraft = { ...previous, passageiros: nextPassengers };
+      setErrors(validatePreview(updated));
       return updated;
     });
     setErrorMessage(null);
@@ -532,10 +464,10 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   };
 
   const handleApplyToForm = () => {
-    const validationErrors = validateDraft(draft);
+    const validationErrors = validatePreview(preview);
     setErrors(validationErrors);
 
-    if (Object.keys(validationErrors).length > 0) {
+    if (hasPreviewErrors(validationErrors)) {
       setErrorMessage('Revise os campos destacados antes de aplicar.');
       setErrorDetails(null);
       setShowErrorDetails(false);
@@ -543,7 +475,25 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       return;
     }
 
-    const sanitized = fromDraft(draft);
+    const sanitized: ReservaPreviewDraft = {
+      ...preview,
+      operadora: preview.operadora.trim(),
+      dataChegada: preview.dataChegada.trim(),
+      dataSaida: preview.dataSaida.trim(),
+      ident: preview.ident.trim() as ReservaPreviewDraft['ident'],
+      vooChegada: preview.vooChegada.trim(),
+      vooSaida: preview.vooSaida.trim(),
+      horarioChegada: preview.horarioChegada.trim(),
+      horarioSaida: preview.horarioSaida.trim(),
+      hotel: preview.hotel.trim(),
+      numeroReserva: preview.numeroReserva.trim(),
+      regime: preview.regime.trim() as ReservaPreviewDraft['regime'],
+      passageiros: preview.passageiros.map((passageiro) => ({
+        nome: passageiro.nome.trim(),
+        classificacao: passageiro.classificacao.trim() as ReservaPreviewDraft['passageiros'][number]['classificacao'],
+      })),
+    };
+
     onApply(sanitized);
     onNotify?.({ type: 'success', message: 'Campos aplicados ao formulário. Revise antes de salvar.' });
     handleClose();
@@ -611,27 +561,29 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
       <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">Importar reserva</h2>
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
+        <div className="flex max-h-[calc(100vh-2rem)] flex-col md:max-h-[min(78vh,860px)]">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900">Importar reserva</h2>
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
+              </div>
+              {modelName ? (
+                <span className="text-xs font-medium uppercase text-slate-400">Modelo: {modelName}</span>
+              ) : null}
             </div>
-            {modelName ? (
-              <span className="text-xs font-medium uppercase text-slate-400">Modelo: {modelName}</span>
-            ) : null}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Fechar modal"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Fechar modal"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
 
-        <div className="flex flex-col gap-6 px-6 py-6">
+          <div className="flex-1 overflow-y-auto px-6 py-6 overscroll-contain">
+            <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-medium text-slate-600">
             <button
               type="button"
@@ -843,15 +795,20 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
           {hasResult && (
             <DetectedFieldsPreview
-              data={draft}
+              data={preview}
               errors={errors}
-              onChange={handleEditableFieldChange}
+              onFieldChange={handleFieldChange}
+              onPassengerChange={handlePassengerChange}
+              onPassengerAdd={handlePassengerAdd}
+              onPassengerRemove={handlePassengerRemove}
               onApply={handleApplyToForm}
               onRetry={handleRetry}
               onDiscard={handleClose}
               isApplying={isProcessing}
             />
           )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
