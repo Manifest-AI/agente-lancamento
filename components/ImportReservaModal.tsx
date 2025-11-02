@@ -273,20 +273,44 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           body: formData,
         });
 
-        if (!response.ok) {
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          console.error('Resposta inválida do extrator', parseError);
           setErrorMessage('Falha na comunicação com o extrator. Tente novamente.');
           setExtractedData(null);
           return;
         }
 
-        const payload = await response.json();
-        if (!payload?.ok) {
-          setErrorMessage(payload?.error ?? 'Não foi possível processar os dados.');
+        if (!response.ok) {
+          if (
+            payload &&
+            typeof payload === 'object' &&
+            'error' in payload &&
+            typeof (payload as { error?: unknown }).error === 'string'
+          ) {
+            setErrorMessage((payload as { error: string }).error);
+          } else {
+            setErrorMessage('Falha na comunicação com o extrator. Tente novamente.');
+          }
           setExtractedData(null);
           return;
         }
 
-        const data = payload.data as ExtractedReservation | undefined;
+        const payloadData = payload as {
+          ok?: boolean;
+          error?: string;
+          data?: ExtractedReservation;
+          model?: string;
+        };
+        if (!payloadData?.ok) {
+          setErrorMessage(payloadData?.error ?? 'Não foi possível processar os dados.');
+          setExtractedData(null);
+          return;
+        }
+
+        const data = payloadData.data as ExtractedReservation | undefined;
         if (!data) {
           setErrorMessage('A resposta não contém dados reconhecíveis.');
           setExtractedData(null);
@@ -298,7 +322,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
         setDraft(nextDraft);
         setErrors(nextErrors);
         setExtractedData(data);
-        setModelName(payload?.model ?? null);
+        setModelName(payloadData?.model ?? null);
 
         if (Object.keys(nextErrors).length) {
           onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
