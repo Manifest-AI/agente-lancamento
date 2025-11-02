@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
@@ -30,8 +31,52 @@ Se um campo não constar, use null. Não invente valores.`;
 
 const SUPPORTED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MODEL_TIMEOUT_MS = 25_000;
+const RETRY_DELAYS_MS = [500, 1_500, 3_000];
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+type JsonErrorCode =
+  | 'bad_request'
+  | 'missing_api_key'
+  | 'invalid_api_key'
+  | 'payload_too_large'
+  | 'unsupported_media_type'
+  | 'openai_invalid_response'
+  | 'rate_limited'
+  | 'openai_upstream_error'
+  | 'internal_error';
+
+type ErrorResponsePayload = {
+  ok: false;
+  error: { code: JsonErrorCode; message: string; hint?: string };
+  requestId: string;
+};
+
+type SuccessResponsePayload = {
+  ok: true;
+  data: ExtractedReservation;
+  requestId: string;
+  model?: string | null;
+};
+
+function makeJsonError(
+  status: number,
+  code: JsonErrorCode,
+  message: string,
+  requestId: string,
+  hint?: string,
+) {
+  const body: ErrorResponsePayload = {
+    ok: false,
+    error: hint ? { code, message, hint } : { code, message },
+    requestId,
+  };
+  return NextResponse.json(body, { status });
+}
+
+function logRouteError(code: JsonErrorCode, requestId: string, message: string, err?: unknown) {
+  const errorToLog = err ?? new Error(message);
+  console.error({ requestId, route: 'ocr-gpt', code, err: errorToLog });
+}
 
 function extractJsonBlock(text: string) {
   const start = text.indexOf('{');
@@ -60,13 +105,50 @@ async function fileToDataURL(file: File) {
   return `data:${mimeType};base64,${base64}`;
 }
 
-function badRequest(message: string) {
-  return NextResponse.json({ ok: false, error: message }, { status: 400 });
+async function callModelWithTimeout(
+  openai: OpenAI,
+  payload: Parameters<OpenAI['chat']['completions']['create']>[0],
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
+  try {
+    return await openai.chat.completions.create({ ...payload, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function callModelWithRetry(
+  openai: OpenAI,
+  payload: Parameters<OpenAI['chat']['completions']['create']>[0],
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await callModelWithTimeout(openai, payload);
+    } catch (error) {
+      lastError = error;
+      const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: number }).status) : undefined;
+      const isAbortError = error instanceof Error && error.name === 'AbortError';
+      if (isAbortError) {
+        break;
+      }
+      if (!status || ![429, 500, 502].includes(status) || attempt === RETRY_DELAYS_MS.length - 1) {
+        break;
+      }
+      const delay = RETRY_DELAYS_MS[attempt];
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
 }
 
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ ok: false, error: 'OPENAI_API_KEY não configurada.' }, { status: 500 });
+  const requestId = randomUUID();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    logRouteError('missing_api_key', requestId, 'OPENAI_API_KEY não configurada.');
+    return makeJsonError(401, 'missing_api_key', 'OPENAI_API_KEY não configurada.', requestId);
   }
 
   const formData = await request.formData();
@@ -74,10 +156,12 @@ export async function POST(request: Request) {
   const fileEntry = formData.get('file');
 
   if (textEntry && fileEntry) {
-    return badRequest('Envie apenas texto ou arquivo por vez.');
+    logRouteError('bad_request', requestId, 'Envie apenas texto ou arquivo por vez.');
+    return makeJsonError(400, 'bad_request', 'Envie apenas texto ou arquivo por vez.', requestId);
   }
 
-  const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+  const model = process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini';
+  const openai = new OpenAI({ apiKey });
 
   let messages: ChatCompletionMessageParam[];
 
@@ -87,11 +171,14 @@ export async function POST(request: Request) {
       { role: 'user', content: textEntry.trim() },
     ];
   } else if (fileEntry instanceof File) {
-    if (!SUPPORTED_MIME_TYPES.includes(fileEntry.type)) {
-      return badRequest('Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.');
+    const mimeType = fileEntry.type || 'application/octet-stream';
+    if (!SUPPORTED_MIME_TYPES.includes(mimeType)) {
+      logRouteError('unsupported_media_type', requestId, 'Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.');
+      return makeJsonError(415, 'unsupported_media_type', 'Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.', requestId);
     }
     if (fileEntry.size > MAX_FILE_SIZE_BYTES) {
-      return badRequest('Arquivo muito grande. Limite de 10MB.');
+      logRouteError('payload_too_large', requestId, 'Arquivo muito grande. Limite de 10MB.');
+      return makeJsonError(413, 'payload_too_large', 'Arquivo muito grande. Limite de 10MB.', requestId);
     }
 
     const dataUrl = await fileToDataURL(fileEntry);
@@ -106,11 +193,12 @@ export async function POST(request: Request) {
       },
     ];
   } else {
-    return badRequest('Envie um texto ou arquivo válido para processamento.');
+    logRouteError('bad_request', requestId, 'Envie um texto ou arquivo válido para processamento.');
+    return makeJsonError(400, 'bad_request', 'Envie um texto ou arquivo válido para processamento.', requestId);
   }
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await callModelWithRetry(openai, {
       model,
       temperature: 0,
       messages,
@@ -118,24 +206,61 @@ export async function POST(request: Request) {
 
     const content = response.choices?.[0]?.message?.content;
     if (!content) {
-      return NextResponse.json({ ok: false, error: 'Resposta sem conteúdo.' }, { status: 502 });
+      logRouteError('openai_upstream_error', requestId, 'Resposta sem conteúdo do provedor de IA.');
+      return makeJsonError(502, 'openai_upstream_error', 'Resposta sem conteúdo do provedor de IA.', requestId);
     }
 
     const jsonBlock = extractJsonBlock(content);
     if (!jsonBlock) {
-      return NextResponse.json({ ok: false, error: 'Não foi possível localizar o JSON na resposta.' }, { status: 502 });
+      logRouteError('openai_invalid_response', requestId, 'Não foi possível localizar JSON válido na resposta.');
+      return makeJsonError(422, 'openai_invalid_response', 'Não foi possível localizar JSON válido na resposta.', requestId);
     }
 
     let data: ExtractedReservation;
     try {
       data = JSON.parse(jsonBlock) as ExtractedReservation;
     } catch (error) {
-      return NextResponse.json({ ok: false, error: 'Falha ao interpretar o JSON retornado.' }, { status: 502 });
+      logRouteError('openai_invalid_response', requestId, 'Falha ao interpretar o JSON retornado pelo provedor.', error);
+      return makeJsonError(422, 'openai_invalid_response', 'Falha ao interpretar o JSON retornado pelo provedor.', requestId);
     }
 
-    return NextResponse.json({ ok: true, data, model: response.model });
+    const successPayload: SuccessResponsePayload = {
+      ok: true,
+      data,
+      requestId,
+      model: response.model,
+    };
+    return NextResponse.json(successPayload, { status: 200 });
   } catch (error) {
-    console.error('Erro na chamada à OpenAI', error);
-    return NextResponse.json({ ok: false, error: 'Erro ao consultar o modelo de extração.' }, { status: 502 });
+    const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: number }).status) : undefined;
+    const hint = error instanceof Error && error.name === 'AbortError' ? 'timeout' : undefined;
+
+    if (hint === 'timeout') {
+      logRouteError('openai_upstream_error', requestId, 'Timeout ao consultar o provedor de IA.', error);
+      return makeJsonError(502, 'openai_upstream_error', 'Timeout ao consultar o provedor de IA.', requestId, 'timeout');
+    }
+
+    if (status === 401) {
+      logRouteError('invalid_api_key', requestId, 'Chave da OpenAI inválida.', error);
+      return makeJsonError(401, 'invalid_api_key', 'Chave da OpenAI inválida.', requestId);
+    }
+
+    if (status === 429) {
+      logRouteError('rate_limited', requestId, 'Limite de requisições excedido pelo provedor de IA.', error);
+      return makeJsonError(429, 'rate_limited', 'Limite de requisições excedido pelo provedor de IA.', requestId);
+    }
+
+    if (status === 500 || status === 502) {
+      logRouteError('openai_upstream_error', requestId, 'Falha temporária ao consultar o provedor de IA.', error);
+      return makeJsonError(502, 'openai_upstream_error', 'Falha temporária ao consultar o provedor de IA.', requestId);
+    }
+
+    if (status && status >= 400 && status < 500) {
+      logRouteError('bad_request', requestId, 'Falha na solicitação ao provedor de IA.', error);
+      return makeJsonError(status, 'bad_request', 'Falha na solicitação ao provedor de IA.', requestId);
+    }
+
+    logRouteError('internal_error', requestId, 'Erro interno ao processar a solicitação.', error);
+    return makeJsonError(500, 'internal_error', 'Erro interno ao processar a solicitação.', requestId);
   }
 }

@@ -151,6 +151,64 @@ function buildTextFormData(text: string) {
   return formData;
 }
 
+type ExtractorErrorDetails = {
+  code: string;
+  message: string;
+  hint?: string;
+  requestId?: string;
+  httpStatus?: number;
+};
+
+function mapErrorCodeToMessage(code: string | undefined, backendMessage: string) {
+  const normalized = code?.toLowerCase();
+  let baseMessage: string;
+
+  switch (normalized) {
+    case 'missing_api_key':
+    case 'invalid_api_key':
+      baseMessage = 'Chave da IA ausente ou inválida. Verifique as variáveis de ambiente.';
+      break;
+    case 'payload_too_large':
+      baseMessage = 'Arquivo maior que o limite de 10 MB.';
+      break;
+    case 'unsupported_media_type':
+      baseMessage = 'Formato não suportado. Use PNG, JPG ou PDF.';
+      break;
+    case 'rate_limited':
+      baseMessage = 'Muitas tentativas agora. Tente novamente em alguns segundos.';
+      break;
+    case 'openai_upstream_error':
+      baseMessage = 'Falha temporária no provedor de IA.';
+      break;
+    case 'openai_invalid_response':
+      baseMessage = 'A IA não retornou dados válidos.';
+      break;
+    case 'invalid_json_response':
+      baseMessage = 'Não foi possível ler a resposta do servidor.';
+      break;
+    case 'network_error':
+      baseMessage = 'Falha de rede ao contatar o servidor.';
+      break;
+    case 'bad_request':
+      baseMessage = 'Não foi possível concluir a extração.';
+      break;
+    default:
+      baseMessage = 'Não foi possível concluir a extração.';
+      break;
+  }
+
+  if (!backendMessage) {
+    return baseMessage;
+  }
+
+  const trimmedBackend = backendMessage.trim();
+  if (!trimmedBackend || trimmedBackend === baseMessage) {
+    return baseMessage;
+  }
+
+  return `${baseMessage} Detalhes: ${trimmedBackend}`;
+}
+
 export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: ImportReservaModalProps) {
   const [activeTab, setActiveTab] = useState<'text' | 'image'>('text');
   const [textInput, setTextInput] = useState('');
@@ -158,6 +216,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<ExtractorErrorDetails | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   const [draft, setDraft] = useState<ExtractedReservationDraft>(emptyDraft);
   const [errors, setErrors] = useState<ExtractedReservationErrors>({});
   const [extractedData, setExtractedData] = useState<ExtractedReservation | null>(null);
@@ -209,6 +269,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setFilePreviewUrl(null);
     setIsProcessing(false);
     setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
     setDraft(emptyDraft);
     setErrors({});
     setExtractedData(null);
@@ -223,6 +285,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const handleTabChange = (tab: 'text' | 'image') => {
     setActiveTab(tab);
     setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
   };
 
   const handleFileSelect = (file: File | null) => {
@@ -233,17 +297,23 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
     if (!acceptedTypes.includes(file.type)) {
       setErrorMessage('Formato não suportado. Utilize PNG, JPG, JPEG ou PDF.');
+      setErrorDetails(null);
+      setShowErrorDetails(false);
       setSelectedFile(null);
       return;
     }
 
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
       setErrorMessage(`Arquivo muito grande. Limite de ${MAX_FILE_SIZE_MB}MB.`);
+      setErrorDetails(null);
+      setShowErrorDetails(false);
       setSelectedFile(null);
       return;
     }
 
     setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
     setSelectedFile(file);
   };
 
@@ -267,29 +337,74 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     async (formData: FormData) => {
       setIsProcessing(true);
       setErrorMessage(null);
+      setErrorDetails(null);
+      setShowErrorDetails(false);
       try {
-        const response = await fetch('/api/ocr-gpt', {
-          method: 'POST',
-          body: formData,
-        });
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
+        let response: Response;
+        try {
+          response = await fetch('/api/ocr-gpt', {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
 
-        if (!response.ok) {
-          setErrorMessage('Falha na comunicação com o extrator. Tente novamente.');
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          const httpStatus = response.status || undefined;
+          const details: ExtractorErrorDetails = {
+            code: 'invalid_json_response',
+            message: 'Resposta inválida do servidor.',
+            hint: 'Não foi possível ler a resposta do servidor',
+            httpStatus,
+          };
+          const userMessage = mapErrorCodeToMessage(details.code, details.message);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
           setExtractedData(null);
+          setModelName(null);
           return;
         }
 
-        const payload = await response.json();
-        if (!payload?.ok) {
-          setErrorMessage(payload?.error ?? 'Não foi possível processar os dados.');
+        const parsed = payload as
+          | { ok: true; data?: ExtractedReservation; model?: string | null; requestId?: string }
+          | { ok: false; error?: { code?: string; message?: string; hint?: string }; requestId?: string };
+
+        if (!response.ok || !parsed?.ok) {
+          const errorPayload = !parsed || typeof parsed !== 'object' ? undefined : (parsed as any).error;
+          const code = typeof errorPayload?.code === 'string' ? errorPayload.code : 'unknown_error';
+          const message = typeof errorPayload?.message === 'string' ? errorPayload.message : 'Não foi possível concluir a extração.';
+          const hint = typeof errorPayload?.hint === 'string' ? errorPayload.hint : undefined;
+          const details: ExtractorErrorDetails = {
+            code,
+            message,
+            hint,
+            requestId: typeof parsed?.requestId === 'string' ? parsed.requestId : undefined,
+            httpStatus: response.status || undefined,
+          };
+          const userMessage = mapErrorCodeToMessage(code, message);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
           setExtractedData(null);
+          setModelName(null);
           return;
         }
 
-        const data = payload.data as ExtractedReservation | undefined;
+        const data = parsed.data as ExtractedReservation | undefined;
         if (!data) {
           setErrorMessage('A resposta não contém dados reconhecíveis.');
+          setErrorDetails(null);
+          setShowErrorDetails(false);
           setExtractedData(null);
+          setModelName(null);
           return;
         }
 
@@ -298,7 +413,9 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
         setDraft(nextDraft);
         setErrors(nextErrors);
         setExtractedData(data);
-        setModelName(payload?.model ?? null);
+        setModelName(parsed?.model ?? null);
+        setErrorDetails(null);
+        setShowErrorDetails(false);
 
         if (Object.keys(nextErrors).length) {
           onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
@@ -307,8 +424,28 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
         }
       } catch (error) {
         console.error('Erro ao chamar o extrator', error);
-        setErrorMessage('Não foi possível processar a solicitação. Verifique a conexão e tente novamente.');
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          const details: ExtractorErrorDetails = {
+            code: 'openai_upstream_error',
+            message: 'Tempo limite atingido na solicitação.',
+            hint: 'timeout',
+          };
+          const userMessage = mapErrorCodeToMessage(details.code, details.message);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+        } else {
+          const details: ExtractorErrorDetails = {
+            code: 'network_error',
+            message: error instanceof Error ? error.message : 'Erro de rede ao contatar o servidor.',
+          };
+          const userMessage = mapErrorCodeToMessage(details.code, details.message);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+        }
         setExtractedData(null);
+        setModelName(null);
       } finally {
         setIsProcessing(false);
       }
@@ -320,6 +457,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     const trimmed = textInput.trim();
     if (!trimmed) {
       setErrorMessage('Cole o conteúdo completo do e-mail de confirmação.');
+      setErrorDetails(null);
+      setShowErrorDetails(false);
       setExtractedData(null);
       return;
     }
@@ -331,6 +470,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const handleExtractFromImage = async () => {
     if (!selectedFile) {
       setErrorMessage('Selecione um arquivo de imagem ou PDF.');
+      setErrorDetails(null);
+      setShowErrorDetails(false);
       return;
     }
 
@@ -343,6 +484,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrors({});
     setExtractedData(null);
     setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
     setModelName(null);
   };
 
@@ -354,6 +497,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       return updated;
     });
     setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
   };
 
   const handleApplyToForm = () => {
@@ -362,6 +507,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
     if (Object.keys(validationErrors).length > 0) {
       setErrorMessage('Revise os campos destacados antes de aplicar.');
+      setErrorDetails(null);
+      setShowErrorDetails(false);
       return;
     }
 
@@ -380,6 +527,27 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   if (!isOpen) {
     return null;
   }
+
+  const handleCopyErrorDetails = useCallback(async () => {
+    if (!errorDetails) {
+      return;
+    }
+    const payload = {
+      code: errorDetails.code,
+      message: errorDetails.message,
+      ...(errorDetails.hint ? { hint: errorDetails.hint } : {}),
+      ...(errorDetails.requestId ? { requestId: errorDetails.requestId } : {}),
+      ...(typeof errorDetails.httpStatus === 'number' ? { httpStatus: errorDetails.httpStatus } : {}),
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload));
+      onNotify?.({ type: 'success', message: 'Detalhes copiados para a área de transferência.' });
+    } catch (clipError) {
+      console.error('Falha ao copiar detalhes de erro', clipError);
+      onNotify?.({ type: 'error', message: 'Não foi possível copiar os detalhes. Copie manualmente.' });
+    }
+  }, [errorDetails, onNotify]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
@@ -429,7 +597,63 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           </div>
 
           {errorMessage && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1">
+                  <p className="font-medium text-rose-700">{errorMessage}</p>
+                  {errorDetails?.message && errorDetails.message !== errorMessage && (
+                    <p className="text-xs text-rose-600">Detalhes do servidor: {errorDetails.message}</p>
+                  )}
+                  {errorDetails?.hint && (
+                    <p className="text-xs text-rose-600">Hint: {errorDetails.hint}</p>
+                  )}
+                </div>
+                {errorDetails && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-rose-600">
+                    <span className="font-semibold">Request ID:</span>
+                    <span className="font-mono">{errorDetails.requestId ?? 'N/A'}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowErrorDetails((previous) => !previous)}
+                      className="ml-auto inline-flex items-center justify-center rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100"
+                    >
+                      {showErrorDetails ? 'Ocultar detalhes' : 'Ver detalhes'}
+                    </button>
+                  </div>
+                )}
+                {errorDetails && showErrorDetails && (
+                  <div className="rounded-lg border border-rose-200 bg-white/70 p-3 text-xs text-rose-700">
+                    <div className="flex flex-col gap-2">
+                      <pre className="whitespace-pre-wrap break-words font-mono text-[11px]">
+                        {JSON.stringify(
+                          {
+                            code: errorDetails.code,
+                            message: errorDetails.message,
+                            ...(errorDetails.hint ? { hint: errorDetails.hint } : {}),
+                            ...(errorDetails.requestId ? { requestId: errorDetails.requestId } : {}),
+                            ...(typeof errorDetails.httpStatus === 'number'
+                              ? { httpStatus: errorDetails.httpStatus }
+                              : {}),
+                          },
+                          null,
+                          2,
+                        )}
+                      </pre>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-rose-500">Copie e envie ao suporte</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyErrorDetails}
+                          className="inline-flex items-center justify-center rounded-lg border border-rose-200 px-3 py-1 text-[11px] font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100"
+                        >
+                          Copiar detalhes
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {!hasResult && activeTab === 'text' && (
