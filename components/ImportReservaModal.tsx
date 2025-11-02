@@ -4,43 +4,151 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
 import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { DetectedFieldsPreview } from './DetectedFieldsPreview';
-import type { ReservaFieldKey, ReservaFields, ReservaExtractionResult } from '@/lib/extractors/reserva';
-import { extractReservaFromText } from '@/lib/extractors/reserva';
-import { ocrImage, type OcrProgressUpdate } from '@/lib/ocr';
+import type {
+  ExtractedReservation,
+  ExtractedReservationDraft,
+  ExtractedReservationErrors,
+  ExtractedReservationFieldKey,
+} from '@/types/ocr-gpt';
 
 export type ImportReservaModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onApply: (fields: ReservaFields) => void;
+  onApply: (data: ExtractedReservation) => void;
   onNotify?: (payload: { type: 'success' | 'error'; message: string }) => void;
 };
 
-const defaultConfidence: Record<ReservaFieldKey, number> = {
-  passengerName: 0,
-  document: 0,
-  passengerType: 0,
-  airline: 0,
-  origin: 0,
-  destination: 0,
-  departureDate: 0,
-  departureTime: 0,
-  returnDate: 0,
-  returnTime: 0,
-  reservationCode: 0,
-  hotel: 0,
-  operator: 0,
-  ident: 0,
-  notes: 0,
+const MAX_FILE_SIZE_MB = 10;
+const IDENT_VALUES: ExtractedReservation['ident'][] = ['BPS', 'AA/TR', 'BUE', 'BUE/A', 'BUE/T'];
+const TIPO_VALUES: ExtractedReservation['tipo'][] = ['A', 'C', 'I'];
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_REGEX = /^\d{2}:\d{2}$/;
+const FLIGHT_REGEX = /^[A-Z]{2}\s?\d{3,4}$/;
+
+const emptyDraft: ExtractedReservationDraft = {
+  operadora: '',
+  data_chegada_bps: '',
+  data_saida_bps: '',
+  ident: '',
+  voo_chegada: '',
+  voo_saida: '',
+  hora_chegada: '',
+  hora_saida: '',
+  hotel: '',
+  id_reserva: '',
+  nome: '',
+  tipo: '',
+  observacao: '',
 };
 
-const MAX_FILE_SIZE_MB = 10;
+function toDraft(data: ExtractedReservation): ExtractedReservationDraft {
+  return {
+    operadora: data.operadora ?? '',
+    data_chegada_bps: data.data_chegada_bps ?? '',
+    data_saida_bps: data.data_saida_bps ?? '',
+    ident: data.ident ?? '',
+    voo_chegada: data.voo_chegada ?? '',
+    voo_saida: data.voo_saida ?? '',
+    hora_chegada: data.hora_chegada ?? '',
+    hora_saida: data.hora_saida ?? '',
+    hotel: data.hotel ?? '',
+    id_reserva: data.id_reserva ?? '',
+    nome: data.nome ?? '',
+    tipo: data.tipo ?? '',
+    observacao: data.observacao ?? '',
+  };
+}
 
-function formatFileSize(bytes: number) {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const index = Math.floor(Math.log(bytes) / Math.log(1024));
-  const value = bytes / Math.pow(1024, index);
-  return `${value.toFixed(1)} ${units[index]}`;
+function fromDraft(draft: ExtractedReservationDraft): ExtractedReservation {
+  return {
+    operadora: draft.operadora.trim() || null,
+    data_chegada_bps: draft.data_chegada_bps.trim() || null,
+    data_saida_bps: draft.data_saida_bps.trim() || null,
+    ident: (draft.ident.trim().toUpperCase() as ExtractedReservation['ident']) || null,
+    voo_chegada: draft.voo_chegada.trim() || null,
+    voo_saida: draft.voo_saida.trim() || null,
+    hora_chegada: draft.hora_chegada.trim() || null,
+    hora_saida: draft.hora_saida.trim() || null,
+    hotel: draft.hotel.trim() || null,
+    id_reserva: draft.id_reserva.trim() || null,
+    nome: draft.nome.trim() || null,
+    tipo: (draft.tipo.trim().toUpperCase() as ExtractedReservation['tipo']) || null,
+    observacao: draft.observacao.trim() || null,
+  };
+}
+
+function validateDraft(draft: ExtractedReservationDraft): ExtractedReservationErrors {
+  const errors: ExtractedReservationErrors = {};
+
+  const maybeDateFields: Array<ExtractedReservationFieldKey> = ['data_chegada_bps', 'data_saida_bps'];
+  maybeDateFields.forEach((field) => {
+    const value = draft[field].trim();
+    if (value && !DATE_REGEX.test(value)) {
+      errors[field] = 'Use o formato yyyy-mm-dd.';
+    }
+  });
+
+  const maybeTimeFields: Array<ExtractedReservationFieldKey> = ['hora_chegada', 'hora_saida'];
+  maybeTimeFields.forEach((field) => {
+    const value = draft[field].trim();
+    if (value && !TIME_REGEX.test(value)) {
+      errors[field] = 'Use o formato hh:mm.';
+    }
+  });
+
+  const maybeFlightFields: Array<ExtractedReservationFieldKey> = ['voo_chegada', 'voo_saida'];
+  maybeFlightFields.forEach((field) => {
+    const value = draft[field].trim();
+    if (value && !FLIGHT_REGEX.test(value.toUpperCase())) {
+      errors[field] = 'Informe o código do voo (ex.: LA 3600).';
+    }
+  });
+
+  const identValue = draft.ident.trim();
+  if (identValue && !IDENT_VALUES.includes(identValue.toUpperCase() as ExtractedReservation['ident'])) {
+    errors.ident = 'IDENT inválido.';
+  }
+
+  const tipoValue = draft.tipo.trim();
+  if (tipoValue && !TIPO_VALUES.includes(tipoValue.toUpperCase() as ExtractedReservation['tipo'])) {
+    errors.tipo = 'Use A, C ou I.';
+  }
+
+  const nomeValue = draft.nome.trim();
+  if (nomeValue) {
+    const parts = nomeValue.split(/\s+/).filter(Boolean);
+    if (parts.length < 2) {
+      errors.nome = 'Informe primeiro e último nome.';
+    }
+  }
+
+  const observacaoValue = draft.observacao.trim();
+  if (observacaoValue && observacaoValue.toLowerCase() !== 'privativo') {
+    errors.observacao = 'Use "Privativo" ou deixe em branco para regular.';
+  }
+
+  return errors;
+}
+
+function normalizeFieldValue(key: ExtractedReservationFieldKey, value: string) {
+  const trimmed = value;
+  if (key === 'ident' || key === 'voo_chegada' || key === 'voo_saida' || key === 'tipo') {
+    return trimmed.toUpperCase();
+  }
+  return trimmed;
+}
+
+async function readFileAsFormData(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return formData;
+}
+
+function buildTextFormData(text: string) {
+  const formData = new FormData();
+  formData.append('text', text);
+  return formData;
 }
 
 export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: ImportReservaModalProps) {
@@ -49,13 +157,13 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState<OcrProgressUpdate | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [extractionResult, setExtractionResult] = useState<ReservaExtractionResult | null>(null);
-  const [editableFields, setEditableFields] = useState<ReservaFields>({});
-  const [confidence, setConfidence] = useState<Record<ReservaFieldKey, number>>(defaultConfidence);
+  const [draft, setDraft] = useState<ExtractedReservationDraft>(emptyDraft);
+  const [errors, setErrors] = useState<ExtractedReservationErrors>({});
+  const [extractedData, setExtractedData] = useState<ExtractedReservation | null>(null);
+  const [modelName, setModelName] = useState<string | null>(null);
 
-  const hasResult = useMemo(() => Boolean(extractionResult), [extractionResult]);
+  const hasResult = useMemo(() => Boolean(extractedData), [extractedData]);
   const acceptedTypes = useMemo(() => ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'], []);
 
   useEffect(() => {
@@ -94,24 +202,17 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     };
   }, [selectedFile]);
 
-  useEffect(() => {
-    if (extractionResult) {
-      setEditableFields(extractionResult.fields);
-      setConfidence(extractionResult.confidence);
-    }
-  }, [extractionResult]);
-
   const resetState = useCallback(() => {
     setActiveTab('text');
     setTextInput('');
     setSelectedFile(null);
     setFilePreviewUrl(null);
     setIsProcessing(false);
-    setProgress(null);
     setErrorMessage(null);
-    setExtractionResult(null);
-    setEditableFields({});
-    setConfidence(defaultConfidence);
+    setDraft(emptyDraft);
+    setErrors({});
+    setExtractedData(null);
+    setModelName(null);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -122,40 +223,6 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const handleTabChange = (tab: 'text' | 'image') => {
     setActiveTab(tab);
     setErrorMessage(null);
-  };
-
-  const runExtraction = useCallback(
-    (text: string) => {
-      const result = extractReservaFromText(text);
-      setExtractionResult(result);
-      const detectedValues = Object.values(result.fields).filter((value) => Boolean(value && value.trim()));
-      if (!detectedValues.length) {
-        setErrorMessage('Não encontramos campos válidos. Ajuste o conteúdo e tente novamente.');
-      } else {
-        setErrorMessage(null);
-      }
-    },
-    [],
-  );
-
-  const handleExtractFromText = async () => {
-    const trimmed = textInput.trim();
-    if (!trimmed) {
-      setErrorMessage('Cole o conteúdo completo do e-mail de confirmação.');
-      setExtractionResult(null);
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      runExtraction(trimmed);
-    } catch (error) {
-      console.error('Erro ao processar texto', error);
-      setErrorMessage('Não foi possível analisar o texto informado.');
-      setExtractionResult(null);
-    } finally {
-      setIsProcessing(false);
-    }
   };
 
   const handleFileSelect = (file: File | null) => {
@@ -177,7 +244,6 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     }
 
     setErrorMessage(null);
-    setProgress(null);
     setSelectedFile(file);
   };
 
@@ -197,58 +263,118 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     }
   };
 
+  const runExtraction = useCallback(
+    async (formData: FormData) => {
+      setIsProcessing(true);
+      setErrorMessage(null);
+      try {
+        const response = await fetch('/api/ocr-gpt', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          setErrorMessage('Falha na comunicação com o extrator. Tente novamente.');
+          setExtractedData(null);
+          return;
+        }
+
+        const payload = await response.json();
+        if (!payload?.ok) {
+          setErrorMessage(payload?.error ?? 'Não foi possível processar os dados.');
+          setExtractedData(null);
+          return;
+        }
+
+        const data = payload.data as ExtractedReservation | undefined;
+        if (!data) {
+          setErrorMessage('A resposta não contém dados reconhecíveis.');
+          setExtractedData(null);
+          return;
+        }
+
+        const nextDraft = toDraft(data);
+        const nextErrors = validateDraft(nextDraft);
+        setDraft(nextDraft);
+        setErrors(nextErrors);
+        setExtractedData(data);
+        setModelName(payload?.model ?? null);
+
+        if (Object.keys(nextErrors).length) {
+          onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
+        } else {
+          onNotify?.({ type: 'success', message: 'Extração concluída. Revise e aplique os dados.' });
+        }
+      } catch (error) {
+        console.error('Erro ao chamar o extrator', error);
+        setErrorMessage('Não foi possível processar a solicitação. Verifique a conexão e tente novamente.');
+        setExtractedData(null);
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [onNotify],
+  );
+
+  const handleExtractFromText = async () => {
+    const trimmed = textInput.trim();
+    if (!trimmed) {
+      setErrorMessage('Cole o conteúdo completo do e-mail de confirmação.');
+      setExtractedData(null);
+      return;
+    }
+
+    const formData = buildTextFormData(trimmed);
+    await runExtraction(formData);
+  };
+
   const handleExtractFromImage = async () => {
     if (!selectedFile) {
       setErrorMessage('Selecione um arquivo de imagem ou PDF.');
       return;
     }
 
-    setIsProcessing(true);
-    setProgress(null);
-    setErrorMessage(null);
-
-    try {
-      const text = await ocrImage(selectedFile, {
-        onProgress(update) {
-          setProgress(update);
-        },
-      });
-
-      if (!text) {
-        setErrorMessage('Não foi possível ler o arquivo enviado.');
-        setExtractionResult(null);
-        return;
-      }
-
-      runExtraction(text);
-    } catch (error) {
-      console.error('Erro no OCR', error);
-      setErrorMessage('Não foi possível processar o arquivo. Tente novamente.');
-      setExtractionResult(null);
-    } finally {
-      setIsProcessing(false);
-    }
+    const formData = await readFileAsFormData(selectedFile);
+    await runExtraction(formData);
   };
 
-  const handleEditableFieldChange = (key: ReservaFieldKey, value: string) => {
-    setEditableFields((previous) => ({ ...previous, [key]: value }));
+  const handleRetry = () => {
+    setDraft(emptyDraft);
+    setErrors({});
+    setExtractedData(null);
+    setErrorMessage(null);
+    setModelName(null);
+  };
+
+  const handleEditableFieldChange = (key: ExtractedReservationFieldKey, value: string) => {
+    setDraft((previous) => {
+      const nextValue = normalizeFieldValue(key, value);
+      const updated = { ...previous, [key]: nextValue };
+      setErrors(validateDraft(updated));
+      return updated;
+    });
+    setErrorMessage(null);
   };
 
   const handleApplyToForm = () => {
-    onApply(editableFields);
+    const validationErrors = validateDraft(draft);
+    setErrors(validationErrors);
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrorMessage('Revise os campos destacados antes de aplicar.');
+      return;
+    }
+
+    const sanitized = fromDraft(draft);
+    onApply(sanitized);
     onNotify?.({ type: 'success', message: 'Campos aplicados ao formulário. Revise antes de salvar.' });
     handleClose();
   };
 
-  const handleRetry = () => {
-    setExtractionResult(null);
-    setEditableFields({});
-    setConfidence(defaultConfidence);
-    setErrorMessage(null);
-    setProgress(null);
-  };
-
-  const hasPreview = Boolean(filePreviewUrl && selectedFile && selectedFile.type.startsWith('image/'));
+  const hasPreview = useMemo(
+    () => Boolean(filePreviewUrl && selectedFile && selectedFile.type.startsWith('image/')),
+    [filePreviewUrl, selectedFile],
+  );
   const isPdf = selectedFile?.type === 'application/pdf';
 
   if (!isOpen) {
@@ -259,9 +385,14 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
       <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-slate-900">Importar reserva</h2>
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">Importar reserva</h2>
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
+            </div>
+            {modelName ? (
+              <span className="text-xs font-medium uppercase text-slate-400">Modelo: {modelName}</span>
+            ) : null}
           </div>
           <button
             type="button"
@@ -298,9 +429,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           </div>
 
           {errorMessage && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {errorMessage}
-            </div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</div>
           )}
 
           {!hasResult && activeTab === 'text' && (
@@ -342,9 +471,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
                 <div className="flex flex-col items-center gap-2">
                   <ImageIcon className="h-8 w-8 text-slate-400" aria-hidden="true" />
                   <div className="space-y-1">
-                    <p className="text-slate-700">
-                      Arraste e solte o arquivo aqui
-                    </p>
+                    <p className="text-slate-700">Arraste e solte o arquivo aqui</p>
                     <p className="text-xs text-slate-500">PNG, JPG, JPEG ou PDF até {MAX_FILE_SIZE_MB}MB</p>
                   </div>
                 </div>
@@ -364,7 +491,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-medium text-slate-800">{selectedFile.name}</p>
-                      <p className="text-xs text-slate-500">{formatFileSize(selectedFile.size)}</p>
+                      <p className="text-xs text-slate-500">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</p>
                     </div>
                     <button
                       type="button"
@@ -377,13 +504,13 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
                   {hasPreview && filePreviewUrl && (
                     <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-                      <img src={filePreviewUrl} alt="Pré-visualização do arquivo" className="h-48 w-full object-contain bg-slate-100" />
+                      <img src={filePreviewUrl} alt="Pré-visualização do arquivo" className="h-48 w-full bg-slate-100 object-contain" />
                     </div>
                   )}
 
                   {isPdf && (
                     <p className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
-                      Pré-visualização indisponível para PDF. O OCR utilizará a primeira página do arquivo.
+                      Pré-visualização indisponível para PDF. A extração utilizará a primeira página do arquivo.
                     </p>
                   )}
                 </div>
@@ -398,29 +525,18 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                 Executar OCR
               </button>
-
-              {progress && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                  <p className="font-medium text-slate-700">{progress.status}</p>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-blue-500 transition-all"
-                      style={{ width: `${Math.min(100, Math.round((progress.progress ?? 0) * 100))}%` }}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
           {hasResult && (
             <DetectedFieldsPreview
-              fields={editableFields}
-              confidence={confidence}
+              data={draft}
+              errors={errors}
               onChange={handleEditableFieldChange}
               onApply={handleApplyToForm}
               onRetry={handleRetry}
               onDiscard={handleClose}
+              isApplying={isProcessing}
             />
           )}
         </div>

@@ -1,67 +1,54 @@
 'use client';
 
-import { useMemo } from 'react';
 import type { ChangeEvent } from 'react';
-import type { ReservaFieldKey, ReservaFields } from '@/lib/extractors/reserva';
+import { useMemo } from 'react';
+import type {
+  ExtractedReservationDraft,
+  ExtractedReservationErrors,
+  ExtractedReservationFieldKey,
+} from '@/types/ocr-gpt';
 
 export type DetectedFieldsPreviewProps = {
-  fields: ReservaFields;
-  confidence: Record<ReservaFieldKey, number>;
-  onChange: (key: ReservaFieldKey, value: string) => void;
+  data: ExtractedReservationDraft;
+  errors: ExtractedReservationErrors;
+  onChange: (key: ExtractedReservationFieldKey, value: string) => void;
   onApply: () => void;
   onRetry: () => void;
   onDiscard: () => void;
+  isApplying?: boolean;
 };
 
 const fieldConfigurations: Array<{
-  key: ReservaFieldKey;
+  key: ExtractedReservationFieldKey;
   label: string;
   placeholder?: string;
   type?: 'text' | 'textarea';
 }> = [
-  { key: 'passengerName', label: 'Passageiro', placeholder: 'Nome completo' },
-  { key: 'document', label: 'Documento', placeholder: 'RG ou CPF' },
-  { key: 'passengerType', label: 'Tipo passageiro', placeholder: 'adulto | crianca | bebe' },
-  { key: 'airline', label: 'Companhia aérea', placeholder: 'Latam, Azul...' },
-  { key: 'origin', label: 'Origem (IATA)', placeholder: 'GRU' },
-  { key: 'destination', label: 'Destino (IATA)', placeholder: 'BSB' },
-  { key: 'departureDate', label: 'Data ida', placeholder: 'yyyy-mm-dd' },
-  { key: 'departureTime', label: 'Hora ida', placeholder: 'hh:mm' },
-  { key: 'returnDate', label: 'Data volta', placeholder: 'yyyy-mm-dd' },
-  { key: 'returnTime', label: 'Hora volta', placeholder: 'hh:mm' },
-  { key: 'reservationCode', label: 'Código reserva / PNR', placeholder: 'ABC123' },
+  { key: 'operadora', label: 'Operadora', placeholder: 'Nome da operadora' },
+  { key: 'data_chegada_bps', label: 'Data de chegada (BPS)', placeholder: 'yyyy-mm-dd' },
+  { key: 'data_saida_bps', label: 'Data de saída (BPS)', placeholder: 'yyyy-mm-dd' },
+  { key: 'ident', label: 'IDENT', placeholder: 'BPS, AA/TR, BUE, BUE/A ou BUE/T' },
+  { key: 'voo_chegada', label: 'Voo de chegada', placeholder: 'Ex.: LA 3600' },
+  { key: 'voo_saida', label: 'Voo de saída', placeholder: 'Ex.: LA 3601' },
+  { key: 'hora_chegada', label: 'Hora de chegada', placeholder: 'hh:mm' },
+  { key: 'hora_saida', label: 'Hora de saída', placeholder: 'hh:mm' },
   { key: 'hotel', label: 'Hotel', placeholder: 'Nome do hotel' },
-  { key: 'operator', label: 'Operadora', placeholder: 'Operadora / fornecedor' },
-  { key: 'ident', label: 'IDENT', placeholder: 'Identificador interno' },
-  { key: 'notes', label: 'Observações', placeholder: 'Observações adicionais', type: 'textarea' },
+  { key: 'id_reserva', label: 'ID da reserva', placeholder: 'Identificador externo' },
+  { key: 'nome', label: 'Passageiro', placeholder: 'Primeiro e último nome' },
+  { key: 'tipo', label: 'Tipo de passageiro', placeholder: 'A, C ou I' },
+  { key: 'observacao', label: 'Observação', placeholder: 'Privativo ou vazio', type: 'textarea' },
 ];
 
-function getConfidenceBadgeClasses(value: number) {
-  if (value >= 0.75) {
-    return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
-  }
-  if (value >= 0.5) {
-    return 'bg-amber-100 text-amber-700 border border-amber-200';
-  }
-  return 'bg-slate-100 text-slate-600 border border-slate-200';
-}
-
-function formatConfidenceLabel(value: number) {
-  if (value === 0) {
-    return 'Sem confiança';
-  }
-  return `${Math.round(value * 100)}%`;
-}
-
 export function DetectedFieldsPreview({
-  fields,
-  confidence,
+  data,
+  errors,
   onChange,
   onApply,
   onRetry,
   onDiscard,
+  isApplying = false,
 }: DetectedFieldsPreviewProps) {
-  const hasAnyField = useMemo(() => Object.values(fields).some((value) => Boolean(value && value.trim())), [fields]);
+  const hasAnyField = useMemo(() => Object.values(data).some((value) => Boolean(value && value.trim())), [data]);
 
   if (!hasAnyField) {
     return (
@@ -87,35 +74,38 @@ export function DetectedFieldsPreview({
     );
   }
 
-  const handleInputChange = (key: ReservaFieldKey) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    onChange(key, event.target.value);
-  };
+  const handleInputChange = (key: ExtractedReservationFieldKey) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      onChange(key, event.target.value);
+    };
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
         {fieldConfigurations.map((field) => {
-          const value = fields[field.key] ?? '';
-          const confidenceValue = confidence[field.key] ?? 0;
+          const value = data[field.key] ?? '';
+          const error = errors[field.key];
+          const hasError = Boolean(error);
 
           return (
             <div key={field.key} className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-sm font-medium text-slate-700" htmlFor={`detected-${field.key}`}>
-                  {field.label}
-                </label>
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getConfidenceBadgeClasses(confidenceValue)}`}>
-                  {formatConfidenceLabel(confidenceValue)}
-                </span>
-              </div>
+              <label className="text-sm font-medium text-slate-700" htmlFor={`detected-${field.key}`}>
+                {field.label}
+              </label>
               {field.type === 'textarea' ? (
                 <textarea
                   id={`detected-${field.key}`}
                   value={value}
                   onChange={handleInputChange(field.key)}
                   rows={3}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                    hasError
+                      ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                      : 'border-slate-300 focus:border-blue-500'
+                  }`}
                   placeholder={field.placeholder}
+                  aria-invalid={hasError}
+                  aria-errormessage={hasError ? `detected-${field.key}-error` : undefined}
                 />
               ) : (
                 <input
@@ -123,10 +113,21 @@ export function DetectedFieldsPreview({
                   type="text"
                   value={value}
                   onChange={handleInputChange(field.key)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  className={`w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                    hasError
+                      ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                      : 'border-slate-300 focus:border-blue-500'
+                  }`}
                   placeholder={field.placeholder}
+                  aria-invalid={hasError}
+                  aria-errormessage={hasError ? `detected-${field.key}-error` : undefined}
                 />
               )}
+              {hasError ? (
+                <span id={`detected-${field.key}-error`} className="text-xs font-medium text-rose-600">
+                  {error}
+                </span>
+              ) : null}
             </div>
           );
         })}
@@ -150,9 +151,10 @@ export function DetectedFieldsPreview({
         <button
           type="button"
           onClick={onApply}
-          className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+          disabled={isApplying}
+          className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          Aplicar ao formulário
+          {isApplying ? 'Aplicando...' : 'Aplicar ao formulário'}
         </button>
       </div>
     </div>
