@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { ImportReservaButton } from '@/components/ImportReservaButton';
 import { ImportReservaModal } from '@/components/ImportReservaModal';
+import { formatBR, parseFlexibleToDate } from '@/lib/dateBr';
 import type { ReservaPreviewDraft } from './mapReservaToForm';
 import { mapPreviewToReservationForm } from './mapReservaToForm';
 
@@ -80,19 +81,6 @@ function toDatabaseDate(value: string) {
   }
 
   return `${year}-${month}-${day}`;
-}
-
-function fromDatabaseDate(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) {
-    return null;
-  }
-
-  return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
 }
 
 function normalizePassengerType(value: string | null | undefined) {
@@ -347,9 +335,9 @@ export default function NovaReservaPage() {
       }
 
       if (mapped.departureDate) {
-        const displayDepartureDate = fromDatabaseDate(mapped.departureDate);
-        if (displayDepartureDate) {
-          updated.departureDate = displayDepartureDate;
+        const parsedDepartureDate = parseFlexibleToDate(mapped.departureDate);
+        if (parsedDepartureDate) {
+          updated.departureDate = formatBR(parsedDepartureDate);
         }
       }
 
@@ -358,9 +346,9 @@ export default function NovaReservaPage() {
       }
 
       if (mapped.returnDate) {
-        const displayReturnDate = fromDatabaseDate(mapped.returnDate);
-        if (displayReturnDate) {
-          updated.returnDate = displayReturnDate;
+        const parsedReturnDate = parseFlexibleToDate(mapped.returnDate);
+        if (parsedReturnDate) {
+          updated.returnDate = formatBR(parsedReturnDate);
         }
       }
 

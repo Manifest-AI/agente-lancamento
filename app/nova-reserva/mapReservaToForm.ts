@@ -1,4 +1,5 @@
-import type { ExtractedReservation } from '@/types/ocr-gpt';
+import type { ExtractedReservation, ExtractedFlightSegment } from '@/types/ocr-gpt';
+import { formatBR, parseFlexibleToDate } from '@/lib/dateBr';
 
 export type PassageiroCategoria = 'A' | 'C' | 'I';
 
@@ -37,9 +38,9 @@ export type ReservaPreviewErrors = {
   passageiros: Array<{ nome?: string; classificacao?: string }>;
 };
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 const FLIGHT_REGEX = /^[A-Z]{2}\d{3,4}$/;
+const DATE_CANDIDATE_REGEX = /\b(\d{4}-\d{2}-\d{2}|\d{2}[/-]\d{2}[/-]\d{4})\b/g;
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, ' ').trim();
@@ -50,25 +51,149 @@ function normalizeFlightCode(value: string | null | undefined) {
     return '';
   }
 
-  const trimmed = value.replace(/\s+/g, '').toUpperCase();
+  const trimmed = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   return FLIGHT_REGEX.test(trimmed) ? trimmed : trimmed;
 }
 
 function extractDateCandidates(...values: Array<string | null | undefined>) {
-  const regex = /\b\d{4}-\d{2}-\d{2}\b/g;
   const candidates = new Set<string>();
 
   values.forEach((value) => {
     if (!value) {
       return;
     }
-    const matches = value.match(regex);
+    const matches = value.match(DATE_CANDIDATE_REGEX);
     if (matches) {
       matches.forEach((match) => candidates.add(match));
     }
   });
 
   return Array.from(candidates);
+}
+
+function normalizeTime(value: string | null | undefined) {
+  if (!value) {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  if (TIME_REGEX.test(trimmed)) {
+    return trimmed;
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 4) {
+    const candidate = `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+    if (TIME_REGEX.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
+function parseTimeToComponents(value: string | null | undefined) {
+  const normalized = normalizeTime(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const [hourString, minuteString] = normalized.split(':');
+  const hour = Number(hourString);
+  const minute = Number(minuteString);
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    return null;
+  }
+
+  return { hour, minute } as const;
+}
+
+function resolveAirportCode(value: string | null | undefined) {
+  if (!value) {
+    return '';
+  }
+
+  const upper = value.toUpperCase();
+  if (upper.includes('BPS')) {
+    return 'BPS';
+  }
+
+  const match = upper.match(/\b[A-Z]{3}\b/);
+  return match ? match[0] : '';
+}
+
+type NormalizedSegment = {
+  origem: string;
+  destino: string;
+  data: string;
+  horarioPartida: string;
+  horarioChegada: string;
+  voo: string;
+};
+
+function toComparableTimestamp(segment: NormalizedSegment, variant: 'arrival' | 'departure') {
+  const date = parseFlexibleToDate(segment.data);
+  if (!date) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const timeComponents =
+    variant === 'arrival'
+      ? parseTimeToComponents(segment.horarioChegada) ?? parseTimeToComponents(segment.horarioPartida)
+      : parseTimeToComponents(segment.horarioPartida) ?? parseTimeToComponents(segment.horarioChegada);
+
+  const hours = timeComponents?.hour ?? 0;
+  const minutes = timeComponents?.minute ?? 0;
+
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes);
+}
+
+export function extractSegments(data: ExtractedReservation) {
+  const segments = Array.isArray(data.segmentos) ? (data.segmentos as ExtractedFlightSegment[]) : [];
+  const normalized: NormalizedSegment[] = segments
+    .filter(Boolean)
+    .map((segment) => ({
+      origem: segment?.origem ? String(segment.origem) : '',
+      destino: segment?.destino ? String(segment.destino) : '',
+      data: segment?.data ? String(segment.data) : '',
+      horarioPartida: segment?.horario_partida ? String(segment.horario_partida) : '',
+      horarioChegada: segment?.horario_chegada ? String(segment.horario_chegada) : '',
+      voo: segment?.voo ? String(segment.voo) : '',
+    }));
+
+  const arrivalCandidates = normalized
+    .filter((segment) => segment.destino.toUpperCase().includes('BPS'))
+    .sort((a, b) => toComparableTimestamp(a, 'arrival') - toComparableTimestamp(b, 'arrival'));
+
+  const departureCandidates = normalized
+    .filter((segment) => segment.origem.toUpperCase().includes('BPS'))
+    .sort((a, b) => toComparableTimestamp(a, 'departure') - toComparableTimestamp(b, 'departure'));
+
+  const arrivalSegment = arrivalCandidates[0];
+  const departureSegment = departureCandidates[0];
+
+  const ida = {
+    voo: arrivalSegment ? normalizeFlightCode(arrivalSegment.voo) : '',
+    data: arrivalSegment ? formatBR(arrivalSegment.data) : '',
+    hora:
+      arrivalSegment
+        ? normalizeTime(arrivalSegment.horarioChegada) || normalizeTime(arrivalSegment.horarioPartida)
+        : '',
+    destino: arrivalSegment ? resolveAirportCode(arrivalSegment.destino) : '',
+  } as const;
+
+  const volta = {
+    voo: departureSegment ? normalizeFlightCode(departureSegment.voo) : '',
+    data: departureSegment ? formatBR(departureSegment.data) : '',
+    hora:
+      departureSegment
+        ? normalizeTime(departureSegment.horarioPartida) || normalizeTime(departureSegment.horarioChegada)
+        : '',
+    origem: departureSegment ? resolveAirportCode(departureSegment.origem) : '',
+  } as const;
+
+  return { ida, volta };
 }
 
 function coerceNumber(value: string | number | null | undefined) {
@@ -182,18 +307,126 @@ export function classifyPaxByAge(ageOrType: unknown): PassageiroCategoria | null
       return null;
     }
 
-    if (['ADT', 'ADULTO', 'ADULT'].includes(normalized)) {
+    if (['ADT', 'ADULTO', 'ADULT', 'A'].includes(normalized)) {
       return 'A';
     }
-    if (['CHD', 'CHILD', 'CRIANCA', 'CH'].includes(normalized)) {
+    if (['CHD', 'CHILD', 'CRIANCA', 'CH', 'C'].includes(normalized)) {
       return 'C';
     }
-    if (['INF', 'INFANT', 'BEBE', 'IN'].includes(normalized)) {
+    if (['INF', 'INFANT', 'BEBE', 'IN', 'I'].includes(normalized)) {
       return 'I';
     }
   }
 
   return null;
+}
+
+function detectPassengerTypeFromName(fullName: string): PassageiroCategoria | null {
+  const match = fullName.match(/\b(ADT|ADULTO|ADULT|CHD|CHILD|CRIANCA|INF|INFANT|BEBE)\b/i);
+  if (!match) {
+    return null;
+  }
+
+  return classifyPaxByAge(match[1]);
+}
+
+function sanitizePassengerName(fullName: string) {
+  const withoutType = fullName.replace(
+    /(?:[-\/\s]*\(?\b(ADT|ADULTO|ADULT|CHD|CHILD|CRIANCA|INF|INFANT|BEBE)\b\)?)+$/i,
+    '',
+  );
+
+  return normalizeWhitespace(withoutType);
+}
+
+type ExtractedPassengerInfo = {
+  first: string;
+  last: string;
+  type: PassageiroCategoria | '';
+};
+
+export function extractPassengers(data: ExtractedReservation): ExtractedPassengerInfo[] {
+  const passengers: ExtractedPassengerInfo[] = [];
+  const seen = new Set<string>();
+
+  const pushPassenger = (fullName: string | null | undefined, classificationSource?: unknown) => {
+    if (!fullName) {
+      return;
+    }
+
+    const normalizedName = normalizeWhitespace(String(fullName));
+    if (!normalizedName) {
+      return;
+    }
+
+    const typeFromName = detectPassengerTypeFromName(normalizedName);
+    const cleaned = sanitizePassengerName(normalizedName);
+    if (!cleaned) {
+      return;
+    }
+
+    const { first, last } = parseNameToFirstLast(cleaned);
+    if (!first && !last) {
+      return;
+    }
+
+    const canonical = cleaned.toUpperCase();
+    if (canonical && seen.has(canonical)) {
+      return;
+    }
+
+    const classification =
+      classifyPaxByAge(classificationSource ?? typeFromName ?? null) ?? '';
+
+    passengers.push({ first, last, type: classification });
+    if (canonical) {
+      seen.add(canonical);
+    }
+  };
+
+  if (Array.isArray(data.passageiros)) {
+    data.passageiros.forEach((passageiro) => {
+      if (!passageiro) {
+        return;
+      }
+
+      const surnameCandidate =
+        typeof (passageiro as Record<string, unknown>)?.['sobrenome'] === 'string'
+          ? String((passageiro as Record<string, unknown>)['sobrenome'])
+          : null;
+
+      const structuredFullName =
+        (typeof passageiro.full_name === 'string' && passageiro.full_name) ||
+        normalizeWhitespace([passageiro.nome, surnameCandidate].filter(Boolean).join(' '));
+
+      if (structuredFullName) {
+        pushPassenger(
+          structuredFullName,
+          passageiro.tipo ?? passageiro.classificacao ?? passageiro.idade ?? passageiro.age ?? null,
+        );
+      }
+    });
+  }
+
+  const compositeName = normalizeWhitespace(
+    [data.passageiro_nome, data.passageiro_sobrenome].filter(Boolean).join(' '),
+  );
+  if (compositeName) {
+    pushPassenger(compositeName);
+  }
+
+  const listFromFullName = typeof data.passageiro_full_name === 'string' ? data.passageiro_full_name : '';
+  if (listFromFullName) {
+    listFromFullName
+      .split(/[\n;,/]+/)
+      .map((value) => normalizeWhitespace(value))
+      .filter(Boolean)
+      .forEach((name) => {
+        pushPassenger(name);
+      });
+  }
+
+  return passengers;
 }
 
 export function detectRegime(serviceText: string | null | undefined): 'Privativo' | 'REGULAR' {
@@ -214,89 +447,12 @@ export function detectRegime(serviceText: string | null | undefined): 'Privativo
   return 'REGULAR';
 }
 
-export function extractFlights(data: ExtractedReservation) {
-  const vooChegada = normalizeFlightCode(data.voo_chegada);
-  const vooSaida = normalizeFlightCode(data.voo_partida);
-
-  const horaChegada = TIME_REGEX.test(data.hora_coleta ?? '')
-    ? (data.hora_coleta as string)
-    : '';
-  const horaSaida = TIME_REGEX.test(data.hora_retorno ?? '')
-    ? (data.hora_retorno as string)
-    : '';
-
-  const dateCandidates = extractDateCandidates(
-    data.data,
-    data.observacoes,
-    data.servico,
-    ...(Array.isArray(data.segmentos)
-      ? data.segmentos.map((segmento) => segmento?.data ?? null)
-      : []),
-  );
-
-  const dataChegada = DATE_REGEX.test(data.data ?? '')
-    ? (data.data as string)
-    : dateCandidates[0] ?? '';
-  const dataSaida = dateCandidates[1] ?? dataChegada ?? '';
-
-  return {
-    vooChegada,
-    vooSaida,
-    horaChegada,
-    horaSaida,
-    dataChegada,
-    dataSaida,
-  };
-}
-
 function ensurePassengerArray(length: number) {
   if (length <= 0) {
     return [{ nome: '', classificacao: '' as const }];
   }
 
   return Array.from({ length }, () => ({ nome: '', classificacao: '' as const }));
-}
-
-function parsePassengerNames(data: ExtractedReservation) {
-  const names: string[] = [];
-
-  const structuredNames = Array.isArray(data.passageiros)
-    ? data.passageiros
-        .map((passageiro) => passageiro?.full_name || passageiro?.nome || null)
-        .filter(Boolean)
-        .map((value) => String(value))
-    : [];
-
-  if (structuredNames.length) {
-    structuredNames.forEach((name) => {
-      const normalized = normalizeWhitespace(name);
-      if (normalized) {
-        names.push(normalized);
-      }
-    });
-  }
-
-  const fullName = data.passageiro_full_name?.trim();
-  if (fullName) {
-    fullName
-      .split(/[\n;,/]+/)
-      .map((value) => normalizeWhitespace(value))
-      .filter(Boolean)
-      .forEach((name) => {
-        if (!names.includes(name)) {
-          names.push(name);
-        }
-      });
-  }
-
-  const composedName = normalizeWhitespace(
-    [data.passageiro_nome, data.passageiro_sobrenome].filter(Boolean).join(' '),
-  );
-  if (composedName && !names.includes(composedName)) {
-    names.push(composedName);
-  }
-
-  return names;
 }
 
 function buildPassengerClassifications(data: ExtractedReservation, total: number) {
@@ -335,7 +491,27 @@ export function createEmptyPreview(): ReservaPreviewDraft {
 
 export function mapReservaToForm(data: ExtractedReservation): ReservaPreviewDraft {
   const operadora = normalizeWhitespace(data.operador ?? '');
-  const { vooChegada, vooSaida, horaChegada, horaSaida, dataChegada, dataSaida } = extractFlights(data);
+  const { ida, volta } = extractSegments(data);
+  const dateCandidates = extractDateCandidates(
+    data.data,
+    data.observacoes,
+    data.servico,
+    ...(Array.isArray(data.segmentos)
+      ? data.segmentos.map((segmento) => segmento?.data ?? null)
+      : []),
+  )
+    .map((candidate) => formatBR(candidate))
+    .filter((value) => Boolean(value));
+
+  const fallbackArrivalDate = formatBR(data.data ?? '') || dateCandidates[0] || '';
+  const fallbackDepartureDate = dateCandidates.length > 1 ? dateCandidates[1] : dateCandidates[0] || '';
+
+  const dataChegada = ida.data || fallbackArrivalDate;
+  const dataSaida = volta.data || fallbackDepartureDate;
+  const vooChegada = ida.voo || normalizeFlightCode(data.voo_chegada);
+  const vooSaida = volta.voo || normalizeFlightCode(data.voo_partida);
+  const horaChegada = ida.hora || normalizeTime(data.hora_coleta);
+  const horaSaida = volta.hora || normalizeTime(data.hora_retorno);
   const regime = detectRegime((data.servico ?? '') + ' ' + (data.observacoes ?? ''));
   const isArgentino = isArgentineReservation(data);
   const ident = deriveIdent({ hotel: data.hotel, isArgentino });
@@ -345,32 +521,24 @@ export function mapReservaToForm(data: ExtractedReservation): ReservaPreviewDraf
     (data.id_externo ?? data.localizador ?? data.booking_code ?? data.id_externo2 ?? '') as string,
   );
 
-  const passengerNames = parsePassengerNames(data);
+  const extractedPassengers = extractPassengers(data);
   const passengerCount = Math.max(
-    passengerNames.length,
+    extractedPassengers.length,
     coerceNumber(data.pax_adulto) + coerceNumber(data.pax_crianca) + coerceNumber(data.pax_bebe),
     1,
   );
 
+  const fallbackClassifications = buildPassengerClassifications(data, passengerCount);
   const passengers = ensurePassengerArray(passengerCount).map((_, index) => {
-    const rawName = passengerNames[index] ?? '';
-    const { first, last } = parseNameToFirstLast(rawName);
-    const composed = normalizeWhitespace([first, last].filter(Boolean).join(' '));
+    const passengerInfo = extractedPassengers[index];
+    const composed = normalizeWhitespace(
+      [passengerInfo?.first ?? '', passengerInfo?.last ?? ''].filter(Boolean).join(' '),
+    ).toUpperCase();
 
-    let classificacao: PassageiroCategoria | '' = '';
-
-    const structuredPassenger = Array.isArray(data.passageiros) ? data.passageiros[index] : undefined;
-    if (structuredPassenger) {
-      classificacao =
-        classifyPaxByAge(structuredPassenger.tipo ?? structuredPassenger.age ?? structuredPassenger.idade ?? null) ?? '';
-      if (!classificacao) {
-        classificacao = classifyPaxByAge(structuredPassenger?.classificacao) ?? '';
-      }
-    }
+    let classificacao: PassageiroCategoria | '' = passengerInfo?.type ?? '';
 
     if (!classificacao) {
-      const classifications = buildPassengerClassifications(data, passengerCount);
-      classificacao = classifications[index] ?? '';
+      classificacao = fallbackClassifications[index] ?? '';
     }
 
     return {
@@ -403,6 +571,9 @@ export function mapPreviewToReservationForm(data: ReservaPreviewDraft) {
   const airlineCodeCandidate = data.vooChegada || data.vooSaida;
   const airline = airlineCodeCandidate ? airlineCodeCandidate.slice(0, 2) : '';
 
+  const formattedDepartureDate = formatBR(data.dataChegada);
+  const formattedReturnDate = formatBR(data.dataSaida);
+
   return {
     passengerName: passengerName || undefined,
     passengerType:
@@ -415,9 +586,9 @@ export function mapPreviewToReservationForm(data: ReservaPreviewDraft) {
             : undefined,
     origin: data.ident ? data.ident : undefined,
     destination: data.hotel ? data.hotel : undefined,
-    departureDate: data.dataChegada || undefined,
+    departureDate: formattedDepartureDate || undefined,
     departureTime: data.horarioChegada || undefined,
-    returnDate: data.dataSaida || undefined,
+    returnDate: formattedReturnDate || undefined,
     returnTime: data.horarioSaida || undefined,
     airline: airline || undefined,
     reservationCode: data.numeroReserva || undefined,
@@ -444,14 +615,14 @@ export function validatePreview(data: ReservaPreviewDraft): ReservaPreviewErrors
 
   if (!data.dataChegada.trim()) {
     errors.dataChegada = 'Campo obrigatório.';
-  } else if (!DATE_REGEX.test(data.dataChegada.trim())) {
-    errors.dataChegada = 'Use o formato YYYY-MM-DD.';
+  } else if (!parseFlexibleToDate(data.dataChegada.trim())) {
+    errors.dataChegada = 'Use o formato dd/MM/aaaa.';
   }
 
   if (!data.dataSaida.trim()) {
     errors.dataSaida = 'Campo obrigatório.';
-  } else if (!DATE_REGEX.test(data.dataSaida.trim())) {
-    errors.dataSaida = 'Use o formato YYYY-MM-DD.';
+  } else if (!parseFlexibleToDate(data.dataSaida.trim())) {
+    errors.dataSaida = 'Use o formato dd/MM/aaaa.';
   }
 
   if (!data.ident.trim()) {

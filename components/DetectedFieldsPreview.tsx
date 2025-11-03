@@ -169,15 +169,15 @@ export function DetectedFieldsPreview({
     <div className="space-y-8">
       <div className="grid gap-4 md:grid-cols-2">
         {[{ key: 'operadora', label: 'Operadora', placeholder: 'Nome da operadora' },
-          { key: 'dataChegada', label: 'Data de chegada (em Porto Seguro)', placeholder: 'YYYY-MM-DD' },
-          { key: 'dataSaida', label: 'Data de saída (de Porto Seguro)', placeholder: 'YYYY-MM-DD' },
-          { key: 'ident', label: 'IDENT', placeholder: 'Ex.: BPS, AA/TR, BUE' },
+          { key: 'numeroReserva', label: 'N° da reserva (ID externo)', placeholder: 'Código da reserva' },
+          { key: 'dataChegada', label: 'Data de chegada (em Porto Seguro)', placeholder: 'dd/MM/aaaa' },
+          { key: 'dataSaida', label: 'Data de saída (de Porto Seguro)', placeholder: 'dd/MM/aaaa' },
           { key: 'vooChegada', label: 'Voô de chegada (em Porto Seguro)', placeholder: 'Ex.: LA3600' },
           { key: 'vooSaida', label: 'Voô de saída (de Porto Seguro)', placeholder: 'Ex.: LA3343' },
           { key: 'horarioChegada', label: 'Horário do voô (Chegada em Porto Seguro)', placeholder: 'HH:mm' },
           { key: 'horarioSaida', label: 'Horário do voô (Saída de Porto Seguro)', placeholder: 'HH:mm' },
           { key: 'hotel', label: 'Nome do Hotel', placeholder: 'Nome do hotel' },
-          { key: 'numeroReserva', label: 'N° da reserva (ID externo)', placeholder: 'Código da reserva' },
+          { key: 'ident', label: 'IDENT', placeholder: 'Ex.: BPS, AA/TR, BUE' },
         ].map((field) => {
           const value = data[field.key as keyof typeof data] as string;
           const error = errors[field.key as keyof typeof errors] as string | undefined;
@@ -188,7 +188,7 @@ export function DetectedFieldsPreview({
                 <span>{field.label}</span>
                 {isMissingValue(value) ? (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                    Faltando
+                    FALTANDO
                   </span>
                 ) : null}
               </label>
@@ -249,7 +249,7 @@ export function DetectedFieldsPreview({
                     <span>{`Passageiro ${index + 1}`}</span>
                     {isMissingValue(passageiro.nome) || isMissingValue(passageiro.classificacao) ? (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                        Faltando
+                        FALTANDO
                       </span>
                     ) : null}
                   </div>
