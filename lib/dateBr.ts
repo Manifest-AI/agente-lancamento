@@ -66,3 +66,39 @@ export function formatBR(value: Date | string | null | undefined): string {
   const year = String(date.getFullYear());
   return `${day}/${month}/${year}`;
 }
+
+export function parseStrictBrDate(value: string | null | undefined): Date | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const [dayString, monthString, yearString] = trimmed.split('/');
+  if (!dayString || !monthString || !yearString) {
+    return null;
+  }
+
+  const day = Number(dayString);
+  const monthIndex = Number(monthString) - 1;
+  const year = Number(yearString);
+
+  if (!Number.isInteger(day) || !Number.isInteger(monthIndex + 1) || !Number.isInteger(year)) {
+    return null;
+  }
+
+  const candidate = new Date(year, monthIndex, day);
+  if (
+    candidate.getFullYear() !== year ||
+    candidate.getMonth() !== monthIndex ||
+    candidate.getDate() !== day ||
+    Number.isNaN(candidate.getTime())
+  ) {
+    return null;
+  }
+
+  return candidate;
+}
