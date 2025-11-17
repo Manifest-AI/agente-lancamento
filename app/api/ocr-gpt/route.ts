@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { ExtractedReservation } from '@/types/ocr-gpt';
+import { normalizeExtractedReservationDates } from '@/lib/ocr/normalizeReservation';
 
 export const runtime = 'nodejs';
 
@@ -41,6 +42,17 @@ REGRAS IMPORTANTES:
 - Formato de datas: sempre "dd/mm/aaaa".
 - "voo_chegada_codigo" e "voo_saida_codigo" aceitam QUALQUER companhia aérea (G3####, LA####, AD####, AR####, etc.). NÃO limite aos exemplos.
 - "hora_chegada_bps" e "hora_saida_bps" devem ficar no formato "HH:MM" em 24 horas.
+
+REGRAS ESPECÍFICAS PARA DATAS DE CHEGADA E SAÍDA:
+- "data_chegada_bps" é a data em que o passageiro CHEGA em Porto Seguro.
+- "data_saida_bps" é a data em que o passageiro SAI de Porto Seguro, ou seja, a data do VOO DE VOLTA.
+- Para identificar "data_saida_bps":
+  1. Procure a data associada ao voo de retorno, normalmente indicada em um bloco com textos como "Volta", "Retorno", "Voo de saída", "Saída".
+  2. Use EXCLUSIVAMENTE a data ligada ao voo de volta. NÃO use datas de campos como "Criação", "Confirmação", "Prazo", "Pagamento", "Validade" ou similares.
+  3. Se houver mais de uma data próxima, selecione aquela que estiver no mesmo bloco textual do voo de volta.
+- Se não for possível identificar com segurança a data de saída, use null em "data_saida_bps" em vez de inventar uma data.
+- Formato de todas as datas: "dd/mm/aaaa".
+- Nunca invente datas. Se tiver dúvida, retorne null.
 - "ident" deve seguir:
   - BPS: hotel em Porto Seguro, passageiro não argentino.
   - AA/TR: hotel em Arraial d'Ajuda / Trancoso / Caraíva, passageiro não argentino.
@@ -276,9 +288,11 @@ export async function POST(request: Request) {
       return makeJsonError(422, 'openai_invalid_response', 'Falha ao interpretar o JSON retornado pelo provedor.', requestId);
     }
 
+    const normalizedData = normalizeExtractedReservationDates(data);
+
     const successPayload: SuccessResponsePayload = {
       ok: true,
-      data,
+      data: normalizedData,
       requestId,
       model: response.model,
     };

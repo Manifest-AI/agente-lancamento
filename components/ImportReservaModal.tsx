@@ -14,6 +14,7 @@ import {
   validatePreview,
 } from '@/app/nova-reserva/mapReservaToForm';
 import type { ReservaPreviewDraft, ReservaPreviewErrors } from '@/app/nova-reserva/mapReservaToForm';
+import { normalizeExtractedReservationDates } from '@/lib/ocr/normalizeReservation';
 
 export type ImportReservaModalProps = {
   isOpen: boolean;
@@ -307,11 +308,12 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           return;
         }
 
-        const nextPreview = mapReservaToForm(data);
+        const normalizedData = normalizeExtractedReservationDates(data);
+        const nextPreview = mapReservaToForm(normalizedData);
         const nextErrors = validatePreview(nextPreview);
         setPreview(nextPreview);
         setErrors(nextErrors);
-        setExtractedData(data);
+        setExtractedData(normalizedData);
         setModelName(parsed?.model ?? null);
         setErrorDetails(null);
         setShowErrorDetails(false);
