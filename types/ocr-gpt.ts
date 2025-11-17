@@ -1,49 +1,24 @@
 export type ExtractedPassenger = {
-  nome?: string | null;
-  full_name?: string | null;
-  idade?: number | null;
-  age?: number | null;
-  tipo?: string | null;
-  classificacao?: string | null;
-  nacionalidade?: string | null;
-  documento?: string | null;
-  telefone?: string | null;
-  origem?: string | null;
-};
-
-export type ExtractedFlightSegment = {
-  origem?: string | null;
-  destino?: string | null;
-  data?: string | null;
-  horario_partida?: string | null;
-  horario_chegada?: string | null;
-  voo?: string | null;
+  nome_completo?: string | null;
+  primeiro_ultimo_nome?: string | null;
+  tipo?: 'ADT' | 'CHD' | 'INF' | null;
+  data_nascimento?: string | null;
 };
 
 export type ExtractedReservation = {
-  operador: string | null;
-  origem_operadora: string | null;
-  localizador: string | null;
-  booking_code: string | null;
-  passageiro_nome: string | null;
-  passageiro_sobrenome: string | null;
-  passageiro_full_name: string | null;
-  servico: string | null;
-  data: string | null;
-  hora_coleta: string | null;
-  hora_retorno: string | null;
-  voo_chegada: string | null;
-  voo_partida: string | null;
+  operadora: string | null;
+  id_externo: string | null;
+  data_chegada_bps: string | null;
+  data_saida_bps: string | null;
+  voo_chegada_codigo: string | null;
+  voo_saida_codigo: string | null;
+  hora_chegada_bps: string | null;
+  hora_saida_bps: string | null;
   hotel: string | null;
-  endereco: string | null;
-  pax_adulto: string | number | null;
-  pax_crianca: string | number | null;
-  pax_bebe: string | number | null;
+  ident: 'BPS' | 'AA/TR' | 'BUE' | 'BUE/A' | 'BUE/T' | null;
+  regime: 'PRIVATIVO' | 'REGULAR' | null;
+  passageiros: ExtractedPassenger[] | null;
   observacoes: string | null;
-  id_externo?: string | null;
-  id_externo2?: string | null;
-  passageiros?: ExtractedPassenger[] | null;
-  segmentos?: ExtractedFlightSegment[] | null;
 };
 
 export type ExtractedReservationFieldKey = keyof ExtractedReservation;

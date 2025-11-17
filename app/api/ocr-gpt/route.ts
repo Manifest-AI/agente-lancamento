@@ -6,34 +6,56 @@ import type { ExtractedReservation } from '@/types/ocr-gpt';
 
 export const runtime = 'nodejs';
 
-const SYSTEM_PROMPT = `Você extrai dados de reservas a partir de e-mails, imagens e PDFs.
-Retorne SOMENTE JSON válido. Datas no formato YYYY-MM-DD e horários HH:mm.
-Campos obrigatórios no JSON:
-- operador
-- origem_operadora
-- localizador
-- booking_code
-- passageiro_nome
-- passageiro_sobrenome
-- passageiro_full_name
-- servico
-- data
-- hora_coleta
-- hora_retorno
-- voo_chegada
-- voo_partida
-- hotel
-- endereco
-- pax_adulto
-- pax_crianca
-- pax_bebe
-- observacoes
-Regras adicionais:
-- Use null quando um campo não existir ou não puder ser identificado.
-- Se localizar apenas o nome completo, preencha passageiro_full_name e deixe nome/sobrenome individuais como null.
-- Se houver múltiplos localizadores, prefira o principal exibido; preencha booking_code com códigos alternativos, se existir.
-- Para pax_* utilize números inteiros (quantidade de passageiros).
-- Não invente valores. Retorne somente o que estiver explícito no material recebido.`;
+const SYSTEM_PROMPT = `Você é um extrator de dados especialista em reservas de turismo para um sistema chamado Agente-Lançamento.
+
+Sua tarefa é ler o conteúdo de uma reserva (texto ou imagem OCR) e devolver
+APENAS um JSON válido seguindo exatamente o schema abaixo, sem nenhum texto antes ou depois:
+
+{
+  "operadora": "string",
+  "id_externo": "string",
+  "data_chegada_bps": "dd/mm/aaaa",
+  "data_saida_bps": "dd/mm/aaaa",
+  "voo_chegada_codigo": "string",
+  "voo_saida_codigo": "string",
+  "hora_chegada_bps": "HH:MM",
+  "hora_saida_bps": "HH:MM",
+  "hotel": "string",
+  "ident": "BPS | AA/TR | BUE | BUE/A | BUE/T | null",
+  "regime": "PRIVATIVO | REGULAR | null",
+  "passageiros": [
+    {
+      "nome_completo": "string",
+      "primeiro_ultimo_nome": "string",
+      "tipo": "ADT | CHD | INF",
+      "data_nascimento": "dd/mm/aaaa | null"
+    }
+  ],
+  "observacoes": "string | null"
+}
+
+REGRAS IMPORTANTES:
+- "id_externo" deve vir do campo ID EXTERNO da reserva (não use "Id", "Id da reserva" ou "Id Externo 2").
+- "data_chegada_bps" é a data em que o passageiro CHEGA em Porto Seguro.
+- "data_saida_bps" é a data em que o passageiro SAI de Porto Seguro (voo de volta).
+- Formato de datas: sempre "dd/mm/aaaa".
+- "voo_chegada_codigo" e "voo_saida_codigo" aceitam QUALQUER companhia aérea (G3####, LA####, AD####, AR####, etc.). NÃO limite aos exemplos.
+- "hora_chegada_bps" e "hora_saida_bps" devem ficar no formato "HH:MM" em 24 horas.
+- "ident" deve seguir:
+  - BPS: hotel em Porto Seguro, passageiro não argentino.
+  - AA/TR: hotel em Arraial d'Ajuda / Trancoso / Caraíva, passageiro não argentino.
+  - BUE: passageiro argentino + hotel em Porto Seguro.
+  - BUE/A: passageiro argentino + hotel em Arraial.
+  - BUE/T: passageiro argentino + hotel em Trancoso.
+  - Se não for possível deduzir, use null.
+- No array "passageiros", inclua TODOS os passageiros encontrados na reserva (algumas reservas podem ter 20, 30, 40 ou mais passageiros).
+- Para cada passageiro:
+  - "nome_completo": exatamente como aparece na reserva.
+  - "primeiro_ultimo_nome": apenas primeiro e último nome.
+  - "tipo": ADT (≥11 anos), CHD (6–10), INF (≤5). Se só aparecer ADT/CHD/INF ou ADULTO/CRIANÇA/BEBÊ, use a sigla equivalente (ADT/CHD/INF).
+- "regime" deve ser PRIVATIVO ou REGULAR, se aparecer algo indicando isso no texto (por exemplo: "SERVIÇO REGULAR", "SERVIÇO PRIVATIVO").
+- Se não tiver certeza de algum valor, use null ou string vazia, NÃO invente dados.
+- Retorne APENAS o JSON, sem comentários, sem explicação, sem texto antes ou depois.`;
 
 const SUPPORTED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -172,9 +194,16 @@ export async function POST(request: Request) {
   let messages: ChatCompletionMessageParam[];
 
   if (typeof textEntry === 'string' && textEntry.trim()) {
+    const trimmedText = textEntry.trim();
+    const userContent = [
+      'Leia o conteúdo da reserva delimitado abaixo, aplique todas as regras do sistema e responda APENAS com o JSON solicitado.',
+      '<<<RESERVA>>>',
+      trimmedText,
+      '<<<FIM>>>',
+    ].join('\n');
     messages = [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: textEntry.trim() },
+      { role: 'user', content: userContent },
     ];
   } else if (fileEntry instanceof File) {
     const mimeType = fileEntry.type || 'application/octet-stream';
@@ -193,7 +222,10 @@ export async function POST(request: Request) {
       {
         role: 'user',
         content: [
-          { type: 'text', text: 'Extraia e normalize conforme regras.' },
+          {
+            type: 'text',
+            text: 'A imagem a seguir contém o conteúdo integral da reserva. Leia tudo, siga exatamente o schema descrito e responda apenas com o JSON.',
+          },
           { type: 'image_url', image_url: { url: dataUrl } },
         ],
       },
