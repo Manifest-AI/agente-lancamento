@@ -43,6 +43,26 @@ REGRAS IMPORTANTES:
 - "voo_chegada_codigo" e "voo_saida_codigo" aceitam QUALQUER companhia aérea (G3####, LA####, AD####, AR####, etc.). NÃO limite aos exemplos.
 - "hora_chegada_bps" e "hora_saida_bps" devem ficar no formato "HH:MM" em 24 horas.
 
+REGRAS ESPECÍFICAS PARA O LAYOUT INFOTRAVEL/TAIPE (SEM QUEBRAR OUTROS FORMATOS):
+- Use estas orientações adicionais quando identificar que a tela segue o layout Infotravel/Taipe. Em outros modelos de reserva continue seguindo o mesmo JSON e regras gerais normalmente.
+- Campo "operadora" nesses layouts:
+  1. Priorize o texto exibido ao lado do rótulo "Contato", que representa a operadora responsável pela reserva.
+  2. Se não houver "Contato", use o texto ao lado do rótulo "Nome" dentro da seção "Unidade", removendo qualquer código numérico ou identificador antes do nome (ex.: "12345 - Operadora X" deve virar apenas "Operadora X").
+  3. Nunca use o nome do sistema/receptivo destacado no meio da página (por exemplo, o título grande do serviço/traslado) como operadora: esse texto identifica o sistema Infotravel/Taipe ou o receptivo local, não a operadora que deve ir no JSON.
+
+REGRAS PARA O BLOCO DE INFORMAÇÕES "IDA/VOLTA" (TOOLTIP AMARELO INFOTRAVEL/TAIPE):
+- Quando houver um quadro com duas linhas identificadas como "Ida" e "Volta":
+  - A linha "Ida" traz companhia aérea, código do voo e a data/hora da chegada em Porto Seguro.
+  - A linha "Volta" traz companhia aérea, código do voo e a data/hora da saída de Porto Seguro.
+- Extraia exatamente:
+  - "data_chegada_bps": data que aparece na linha "Ida".
+  - "data_saida_bps": data que aparece na linha "Volta".
+  - "voo_chegada_codigo": código de voo da linha "Ida".
+  - "voo_saida_codigo": código de voo da linha "Volta".
+  - "hora_chegada_bps": horário da linha "Ida".
+  - "hora_saida_bps": horário da linha "Volta".
+- Copie os valores exatamente como aparecem (inclusive zeros à esquerda) e, se não conseguir ler algum dígito com segurança, retorne null ao invés de chutar.
+
 REGRAS ESPECÍFICAS PARA DATAS DE CHEGADA E SAÍDA:
 - "data_chegada_bps" é a data em que o passageiro CHEGA em Porto Seguro.
 - "data_saida_bps" é a data em que o passageiro SAI de Porto Seguro, ou seja, a data do VOO DE VOLTA.
@@ -53,6 +73,9 @@ REGRAS ESPECÍFICAS PARA DATAS DE CHEGADA E SAÍDA:
 - Se não for possível identificar com segurança a data de saída, use null em "data_saida_bps" em vez de inventar uma data.
 - Formato de todas as datas: "dd/mm/aaaa".
 - Nunca invente datas. Se tiver dúvida, retorne null.
+- Sempre que existir um texto no formato "DATA_INICIAL até DATA_FINAL" associado ao período do serviço (ex.: logo abaixo do título do traslado), verifique se a primeira data coincide com "data_chegada_bps" e se a segunda coincide com "data_saida_bps". Em caso de conflito com as datas das linhas "Ida"/"Volta", dê preferência absoluta às datas das linhas "Ida" e "Volta", copiando exatamente os dígitos exibidos.
+- Copie as datas exatamente como são mostradas (dia, mês, ano). Não substitua por datas de outros contextos da mesma tela (criação, confirmação, pagamento etc.).
+- Se algum dígito estiver ilegível ou ausente, retorne null em vez de adivinhar.
 - "ident" deve seguir:
   - BPS: hotel em Porto Seguro, passageiro não argentino.
   - AA/TR: hotel em Arraial d'Ajuda / Trancoso / Caraíva, passageiro não argentino.
