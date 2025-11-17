@@ -158,7 +158,7 @@ export function mapReservaToForm(data: ExtractedReservation): ReservaPreviewDraf
 
   const passengerSource = Array.isArray(data.passageiros) ? data.passageiros : [];
   const passengerCount = Math.max(passengerSource.length, 1);
-  const passengers = ensurePassengerArray(passengerCount).map((_, index) => {
+  const passageiros = ensurePassengerArray(passengerCount).map((_, index) => {
     const passenger = passengerSource[index];
     const nome = passenger ? normalizePassengerName(passenger) : '';
     const classificacao = passenger ? mapPassengerTypeToClassification(passenger.tipo ?? null) : '';
