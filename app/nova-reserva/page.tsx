@@ -171,14 +171,8 @@ export default function NovaReservaPage() {
     const mapClassificationToTipoPax = (
       classificacao?: ReservaPreviewDraft['passageiros'][number]['classificacao'],
     ) => {
-      if (classificacao === 'A') {
-        return 'ADT';
-      }
-      if (classificacao === 'C') {
-        return 'CHD';
-      }
-      if (classificacao === 'I') {
-        return 'INF';
+      if (classificacao === 'A' || classificacao === 'C' || classificacao === 'I') {
+        return classificacao;
       }
       return null;
     };
