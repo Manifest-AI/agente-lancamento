@@ -433,7 +433,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setPreview((previous) => {
       const nextPassengers: ReservaPreviewDraft['passageiros'] = [
         ...previous.passageiros,
-        { nome: '', classificacao: '' },
+        { nome: '', classificacao: '' as const },
       ];
       const updated: ReservaPreviewDraft = { ...previous, passageiros: nextPassengers };
       setErrors(validatePreview(updated));

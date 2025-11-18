@@ -128,7 +128,10 @@ export default function NovaReservaPage() {
   const handlePassengerAdd = () => {
     resetFeedback();
     setFormData((previous) => {
-      const passengers = [...previous.passageiros, { nome: '', classificacao: '' }];
+      const passengers = [
+        ...previous.passageiros,
+        { nome: '', classificacao: '' as ReservaPreviewDraft['passageiros'][number]['classificacao'] },
+      ];
       const updated = { ...previous, passageiros: passengers };
       setErrors(validatePreview(updated));
       return updated;

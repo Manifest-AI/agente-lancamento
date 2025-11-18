@@ -139,7 +139,7 @@ export function createEmptyPreview(): ReservaPreviewDraft {
     hotel: '',
     numeroReserva: '',
     regime: '',
-    passageiros: [{ nome: '', classificacao: '' }],
+    passageiros: [{ nome: '', classificacao: '' as const }],
   };
 }
 
