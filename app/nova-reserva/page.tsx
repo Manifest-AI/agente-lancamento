@@ -167,24 +167,36 @@ export default function NovaReservaPage() {
     setIsSubmitting(true);
 
     const sanitized = sanitizePreviewDraft(formData);
-    const airlineCandidate = sanitized.vooChegada || sanitized.vooSaida;
-    const ciaAerea = airlineCandidate ? airlineCandidate.slice(0, 2) : null;
+
+    const mapClassificationToTipoPax = (
+      classificacao?: ReservaPreviewDraft['passageiros'][number]['classificacao'],
+    ) => {
+      if (classificacao === 'A') {
+        return 'ADT';
+      }
+      if (classificacao === 'C') {
+        return 'CHD';
+      }
+      if (classificacao === 'I') {
+        return 'INF';
+      }
+      return null;
+    };
 
     const payload = {
       operadora: sanitized.operadora || null,
-      codigo_reserva: sanitized.numeroReserva || null,
+      data_chegada: toDatabaseDate(sanitized.dataChegada),
+      data_saida: toDatabaseDate(sanitized.dataSaida),
       ident: sanitized.ident || null,
+      voo_chegada: sanitized.vooChegada || null,
+      voo_saida: sanitized.vooSaida || null,
+      horario_voo_chegada: sanitized.horarioChegada || null,
+      horario_voo_saida: sanitized.horarioSaida || null,
       hotel: sanitized.hotel || null,
-      origem: sanitized.vooChegada || null,
-      destino: sanitized.vooSaida || null,
-      data_voo_ida: toDatabaseDate(sanitized.dataChegada),
-      data_voo_volta: toDatabaseDate(sanitized.dataSaida),
-      hora_voo_ida: sanitized.horarioChegada || null,
-      hora_voo_volta: sanitized.horarioSaida || null,
-      cia_aerea: ciaAerea,
-      passageiro: sanitized.passageiros[0]?.nome || null,
-      passageiros: sanitized.passageiros,
-      regime: sanitized.regime || null,
+      numero_reserva: sanitized.numeroReserva || null,
+      nome_pax: sanitized.passageiros[0]?.nome || null,
+      tipo_pax: mapClassificationToTipoPax(sanitized.passageiros[0]?.classificacao) || null,
+      obs: null,
       user_id: user?.id ?? null,
     };
 
