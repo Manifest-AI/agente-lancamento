@@ -295,7 +295,7 @@ export default function NovaReservaPage() {
       companhia_aerea: formData.airline.trim(),
       codigo_reserva: formData.reservationCode.trim(),
       observacoes: formData.notes.trim() || null,
-      usuario_id: user?.id ?? null,
+      user_id: user?.id ?? null,
     };
 
     const { error } = await supabase.from('reservas').insert([payload]);
