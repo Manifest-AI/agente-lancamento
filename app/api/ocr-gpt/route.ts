@@ -66,16 +66,24 @@ REGRAS PARA O BLOCO DE INFORMAÇÕES "IDA/VOLTA" (TOOLTIP AMARELO INFOTRAVEL/TAI
 REGRAS ESPECÍFICAS PARA DATAS DE CHEGADA E SAÍDA:
 - "data_chegada_bps" é a data em que o passageiro CHEGA em Porto Seguro.
 - "data_saida_bps" é a data em que o passageiro SAI de Porto Seguro, ou seja, a data do VOO DE VOLTA.
+- Quando existir um bloco de transporte com linhas "Ida" e "Volta":
+  - A linha "Ida" traz a data/hora de chegada em Porto Seguro e deve ser copiada para "data_chegada_bps".
+  - A linha "Volta" traz a data/hora de saída de Porto Seguro e deve ser copiada para "data_saida_bps".
+- Se, além do bloco "Ida/Volta", existir um texto no formato "DATA_INICIAL até DATA_FINAL" representando o período do serviço (por exemplo, logo abaixo do título do traslado), garanta que:
+  - "data_chegada_bps" corresponda exatamente à DATA_INICIAL.
+  - "data_saida_bps" corresponda exatamente à DATA_FINAL.
+- Em qualquer divergência entre as datas das linhas "Ida/Volta" e o intervalo "DATA_INICIAL até DATA_FINAL", escolha a combinação que faça mais sentido lógico, obedecendo SEMPRE a regra:
+  - "data_chegada_bps" = menor data do período (data inicial da viagem para Porto Seguro).
+  - "data_saida_bps" = maior data do período (data final da viagem, saída de Porto Seguro).
 - Para identificar "data_saida_bps":
   1. Procure a data associada ao voo de retorno, normalmente indicada em um bloco com textos como "Volta", "Retorno", "Voo de saída", "Saída".
   2. Use EXCLUSIVAMENTE a data ligada ao voo de volta. NÃO use datas de campos como "Criação", "Confirmação", "Prazo", "Pagamento", "Validade" ou similares.
   3. Se houver mais de uma data próxima, selecione aquela que estiver no mesmo bloco textual do voo de volta.
-- Se não for possível identificar com segurança a data de saída, use null em "data_saida_bps" em vez de inventar uma data.
+- A data de chegada deve ser anterior ou igual à data de saída. Nunca retorne uma data de chegada posterior à data de saída.
+- Se não for possível identificar com segurança a data de chegada ou de saída, use null em vez de inventar uma data.
 - Formato de todas as datas: "dd/mm/aaaa".
-- Nunca invente datas. Se tiver dúvida, retorne null.
-- Sempre que existir um texto no formato "DATA_INICIAL até DATA_FINAL" associado ao período do serviço (ex.: logo abaixo do título do traslado), verifique se a primeira data coincide com "data_chegada_bps" e se a segunda coincide com "data_saida_bps". Em caso de conflito com as datas das linhas "Ida"/"Volta", dê preferência absoluta às datas das linhas "Ida" e "Volta", copiando exatamente os dígitos exibidos.
-- Copie as datas exatamente como são mostradas (dia, mês, ano). Não substitua por datas de outros contextos da mesma tela (criação, confirmação, pagamento etc.).
-- Se algum dígito estiver ilegível ou ausente, retorne null em vez de adivinhar.
+- Copie as datas exatamente como são mostradas (dia, mês, ano). Nunca troque o dia, mês ou ano por outra data exibida em outro contexto da mesma tela.
+- Se algum dígito estiver ilegível ou ausente (por exemplo, o dia não pode ser lido), retorne null em vez de tentar adivinhar.
 - "ident" deve seguir:
   - BPS: hotel em Porto Seguro, passageiro não argentino.
   - AA/TR: hotel em Arraial d'Ajuda / Trancoso / Caraíva, passageiro não argentino.
