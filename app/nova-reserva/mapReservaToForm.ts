@@ -143,6 +143,12 @@ export function createEmptyPreview(): ReservaPreviewDraft {
   };
 }
 
+export function createEmptyPreviewErrors(passengerCount = 1): ReservaPreviewErrors {
+  return {
+    passageiros: Array.from({ length: Math.max(passengerCount, 1) }, () => ({})),
+  };
+}
+
 export function mapReservaToForm(data: ExtractedReservation): ReservaPreviewDraft {
   const operadora = normalizeWhitespace(data.operadora ?? '');
   const dataChegada = formatBR(data.data_chegada_bps);
@@ -184,45 +190,25 @@ export function mapReservaToForm(data: ExtractedReservation): ReservaPreviewDraf
   };
 }
 
-export function mapPreviewToReservationForm(data: ReservaPreviewDraft) {
-  const firstPassenger = data.passageiros[0];
-  const passengerName = firstPassenger?.nome ?? '';
-  const passengerType = firstPassenger?.classificacao ?? '';
-
-  const airlineCodeCandidate = data.vooChegada || data.vooSaida;
-  const airline = airlineCodeCandidate ? airlineCodeCandidate.slice(0, 2) : '';
-
-  const formattedDepartureDate = formatBR(data.dataChegada);
-  const formattedReturnDate = formatBR(data.dataSaida);
-
+export function sanitizePreviewDraft(preview: ReservaPreviewDraft): ReservaPreviewDraft {
   return {
-    passengerName: passengerName || undefined,
-    passengerType:
-      passengerType === 'A'
-        ? 'adulto'
-        : passengerType === 'C'
-          ? 'crianca'
-          : passengerType === 'I'
-            ? 'bebe'
-            : undefined,
-    origin: data.ident ? data.ident : undefined,
-    destination: data.hotel ? data.hotel : undefined,
-    departureDate: formattedDepartureDate || undefined,
-    departureTime: data.horarioChegada || undefined,
-    returnDate: formattedReturnDate || undefined,
-    returnTime: data.horarioSaida || undefined,
-    airline: airline || undefined,
-    reservationCode: data.numeroReserva || undefined,
-    notes:
-      data.regime || data.operadora
-        ? [
-            data.regime ? `Regime: ${data.regime}` : null,
-            data.operadora ? `Operadora: ${data.operadora}` : null,
-          ]
-            .filter(Boolean)
-            .join('\n') || undefined
-        : undefined,
-  } as const;
+    ...preview,
+    operadora: preview.operadora.trim(),
+    dataChegada: preview.dataChegada.trim(),
+    dataSaida: preview.dataSaida.trim(),
+    ident: preview.ident.trim() as ReservaPreviewDraft['ident'],
+    vooChegada: preview.vooChegada.trim(),
+    vooSaida: preview.vooSaida.trim(),
+    horarioChegada: preview.horarioChegada.trim(),
+    horarioSaida: preview.horarioSaida.trim(),
+    hotel: preview.hotel.trim(),
+    numeroReserva: preview.numeroReserva.trim(),
+    regime: preview.regime.trim() as ReservaPreviewDraft['regime'],
+    passageiros: preview.passageiros.map((passageiro) => ({
+      nome: passageiro.nome.trim(),
+      classificacao: passageiro.classificacao.trim() as ReservaPreviewDraft['passageiros'][number]['classificacao'],
+    })),
+  };
 }
 
 export function validatePreview(data: ReservaPreviewDraft): ReservaPreviewErrors {

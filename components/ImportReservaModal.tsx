@@ -9,8 +9,10 @@ import type {
 } from '@/types/ocr-gpt';
 import {
   createEmptyPreview,
+  createEmptyPreviewErrors,
   hasPreviewErrors,
   mapReservaToForm,
+  sanitizePreviewDraft,
   validatePreview,
 } from '@/app/nova-reserva/mapReservaToForm';
 import type { ReservaPreviewDraft, ReservaPreviewErrors } from '@/app/nova-reserva/mapReservaToForm';
@@ -24,12 +26,6 @@ export type ImportReservaModalProps = {
 };
 
 const MAX_FILE_SIZE_MB = 10;
-
-function createEmptyErrors(passengerCount: number): ReservaPreviewErrors {
-  return {
-    passageiros: Array.from({ length: Math.max(passengerCount, 1) }, () => ({})),
-  };
-}
 
 async function readFileAsFormData(file: File) {
   const formData = new FormData();
@@ -86,7 +82,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const [errorDetails, setErrorDetails] = useState<ExtractorErrorDetails | null>(null);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
   const [preview, setPreview] = useState<ReservaPreviewDraft>(() => createEmptyPreview());
-  const [errors, setErrors] = useState<ReservaPreviewErrors>(() => createEmptyErrors(1));
+  const [errors, setErrors] = useState<ReservaPreviewErrors>(() => createEmptyPreviewErrors(1));
   const [extractedData, setExtractedData] = useState<ExtractedReservation | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [clipboardSupport, setClipboardSupport] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
@@ -164,7 +160,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setErrorDetails(null);
     setShowErrorDetails(false);
     setPreview(createEmptyPreview());
-    setErrors(createEmptyErrors(1));
+    setErrors(createEmptyPreviewErrors(1));
     setExtractedData(null);
     setModelName(null);
     setClipboardSupport('unknown');
@@ -384,7 +380,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
 
   const handleRetry = () => {
     setPreview(createEmptyPreview());
-    setErrors(createEmptyErrors(1));
+    setErrors(createEmptyPreviewErrors(1));
     setExtractedData(null);
     setErrorMessage(null);
     setErrorDetails(null);
@@ -477,24 +473,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       return;
     }
 
-    const sanitized: ReservaPreviewDraft = {
-      ...preview,
-      operadora: preview.operadora.trim(),
-      dataChegada: preview.dataChegada.trim(),
-      dataSaida: preview.dataSaida.trim(),
-      ident: preview.ident.trim() as ReservaPreviewDraft['ident'],
-      vooChegada: preview.vooChegada.trim(),
-      vooSaida: preview.vooSaida.trim(),
-      horarioChegada: preview.horarioChegada.trim(),
-      horarioSaida: preview.horarioSaida.trim(),
-      hotel: preview.hotel.trim(),
-      numeroReserva: preview.numeroReserva.trim(),
-      regime: preview.regime.trim() as ReservaPreviewDraft['regime'],
-      passageiros: preview.passageiros.map((passageiro) => ({
-        nome: passageiro.nome.trim(),
-        classificacao: passageiro.classificacao.trim() as ReservaPreviewDraft['passageiros'][number]['classificacao'],
-      })),
-    };
+    const sanitized = sanitizePreviewDraft(preview);
 
     onApply(sanitized);
     onNotify?.({ type: 'success', message: 'Campos aplicados ao formulário. Revise antes de salvar.' });

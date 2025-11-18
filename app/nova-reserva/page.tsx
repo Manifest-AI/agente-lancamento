@@ -1,52 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { ImportReservaButton } from '@/components/ImportReservaButton';
 import { ImportReservaModal } from '@/components/ImportReservaModal';
-import { formatBR, parseFlexibleToDate } from '@/lib/dateBr';
-import type { ReservaPreviewDraft } from './mapReservaToForm';
-import { mapPreviewToReservationForm } from './mapReservaToForm';
-
-type ReservationFormData = {
-  passengerName: string;
-  document: string;
-  passengerType: string;
-  origin: string;
-  destination: string;
-  departureDate: string;
-  departureTime: string;
-  returnDate: string;
-  returnTime: string;
-  airline: string;
-  reservationCode: string;
-  notes: string;
-};
-
-const initialFormState: ReservationFormData = {
-  passengerName: '',
-  document: '',
-  passengerType: '',
-  origin: '',
-  destination: '',
-  departureDate: '',
-  departureTime: '',
-  returnDate: '',
-  returnTime: '',
-  airline: '',
-  reservationCode: '',
-  notes: '',
-};
-
-const passengerTypes = [
-  { label: 'Adulto', value: 'adulto' },
-  { label: 'Criança', value: 'crianca' },
-  { label: 'Bebê', value: 'bebe' },
-];
+import { ReservaFormFields } from '@/components/ReservaFormFields';
+import {
+  createEmptyPreview,
+  createEmptyPreviewErrors,
+  hasPreviewErrors,
+  sanitizePreviewDraft,
+  validatePreview,
+} from './mapReservaToForm';
+import type { ReservaPreviewDraft, ReservaPreviewErrors } from './mapReservaToForm';
 
 function formatDateInput(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 8);
@@ -60,18 +30,12 @@ function formatTimeInput(value: string) {
   return parts.join(':');
 }
 
-function formatDocumentInput(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
+function formatFlightCodeInput(value: string) {
+  return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7);
+}
 
-  if (digits.length <= 9) {
-    return digits;
-  }
-
-  return digits.replace(
-    /(\d{3})(\d{3})(\d{3})(\d{0,2})/,
-    (_match, group1, group2, group3, group4) =>
-      group4 ? `${group1}.${group2}.${group3}-${group4}` : `${group1}.${group2}.${group3}`,
-  );
+function formatIdentInput(value: string) {
+  return value.replace(/[^A-Za-z/]/g, '').toUpperCase().slice(0, 5);
 }
 
 function toDatabaseDate(value: string) {
@@ -83,88 +47,10 @@ function toDatabaseDate(value: string) {
   return `${year}-${month}-${day}`;
 }
 
-function normalizePassengerType(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value.toLowerCase();
-  if (normalized.includes('adult')) {
-    return 'adulto';
-  }
-
-  if (normalized.includes('cri')) {
-    return 'crianca';
-  }
-
-  if (normalized.includes('beb')) {
-    return 'bebe';
-  }
-
-  return null;
-}
-
-function isValidDate(value: string) {
-  const [day, month, year] = value.split('/').map(Number);
-  if (!day || !month || !year) {
-    return false;
-  }
-
-  const date = new Date(year, month - 1, day);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-function isValidTime(value: string) {
-  const [hour, minute] = value.split(':').map(Number);
-  if (Number.isNaN(hour) || Number.isNaN(minute)) {
-    return false;
-  }
-
-  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
-}
-
-function isValidCPF(value: string) {
-  const digits = value.replace(/\D/g, '');
-
-  if (digits.length !== 11 || /^([0-9])\1+$/.test(digits)) {
-    return false;
-  }
-
-  const calculateDigit = (slice: number) => {
-    const numbers = digits.slice(0, slice).split('').map(Number);
-    const weight = numbers.map((number, index) => number * (slice + 1 - index));
-    const sum = weight.reduce((accumulator, current) => accumulator + current, 0);
-    const result = (sum * 10) % 11;
-    return result === 10 ? 0 : result;
-  };
-
-  const digit1 = calculateDigit(9);
-  const digit2 = calculateDigit(10);
-
-  return digit1 === Number(digits[9]) && digit2 === Number(digits[10]);
-}
-
-function validateDocument(value: string) {
-  const digits = value.replace(/\D/g, '');
-
-  if (!digits) {
-    return 'Informe o documento do passageiro.';
-  }
-
-  if (digits.length === 11) {
-    return isValidCPF(digits) ? null : 'CPF inválido. Verifique os números informados.';
-  }
-
-  if (digits.length >= 8 && digits.length <= 10) {
-    return null;
-  }
-
-  return 'Documento inválido. Informe um RG ou CPF válido.';
-}
-
 export default function NovaReservaPage() {
   const { user } = useAuth();
-  const [formData, setFormData] = useState<ReservationFormData>(initialFormState);
+  const [formData, setFormData] = useState<ReservaPreviewDraft>(() => createEmptyPreview());
+  const [errors, setErrors] = useState<ReservaPreviewErrors>(() => createEmptyPreviewErrors(1));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -185,88 +71,81 @@ export default function NovaReservaPage() {
     };
   }, [toast]);
 
-  const handleChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = event.target;
+  const resetFeedback = () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  };
 
+  const handleFieldChange = <T extends keyof Omit<ReservaPreviewDraft, 'passageiros'>>(field: T, value: string) => {
+    resetFeedback();
     setFormData((previous) => {
-      if (name === 'departureDate' || name === 'returnDate') {
-        return { ...previous, [name]: formatDateInput(value) };
+      let nextValue = value;
+
+      if (field === 'dataChegada' || field === 'dataSaida') {
+        nextValue = formatDateInput(value);
+      } else if (field === 'horarioChegada' || field === 'horarioSaida') {
+        nextValue = formatTimeInput(value);
+      } else if (field === 'vooChegada' || field === 'vooSaida') {
+        nextValue = formatFlightCodeInput(value);
+      } else if (field === 'ident') {
+        nextValue = formatIdentInput(value);
       }
 
-      if (name === 'departureTime' || name === 'returnTime') {
-        return { ...previous, [name]: formatTimeInput(value) };
-      }
-
-      if (name === 'document') {
-        return { ...previous, [name]: formatDocumentInput(value) };
-      }
-
-      if (name === 'origin' || name === 'destination' || name === 'reservationCode') {
-        return { ...previous, [name]: value.toUpperCase() };
-      }
-
-      return { ...previous, [name]: value };
+      const updated = { ...previous, [field]: nextValue } as ReservaPreviewDraft;
+      setErrors(validatePreview(updated));
+      return updated;
     });
   };
 
-  const validateForm = (data: ReservationFormData) => {
-    if (!data.passengerName.trim()) {
-      return 'Informe o nome do passageiro.';
-    }
+  const handlePassengerChange = (
+    index: number,
+    field: keyof ReservaPreviewDraft['passageiros'][number],
+    value: string,
+  ) => {
+    resetFeedback();
+    setFormData((previous) => {
+      const passengers = previous.passageiros.map((passageiro, passengerIndex) => {
+        if (passengerIndex !== index) {
+          return passageiro;
+        }
 
-    const documentValidation = validateDocument(data.document);
-    if (documentValidation) {
-      return documentValidation;
-    }
+        if (field === 'classificacao') {
+          return {
+            ...passageiro,
+            classificacao: value as ReservaPreviewDraft['passageiros'][number]['classificacao'],
+          };
+        }
 
-    if (!data.passengerType) {
-      return 'Selecione o tipo de passageiro.';
-    }
+        return { ...passageiro, nome: value.toUpperCase() };
+      });
 
-    if (!data.origin.trim() || data.origin.trim().length < 3) {
-      return 'Informe a origem com pelo menos 3 caracteres.';
-    }
+      const updated = { ...previous, passageiros: passengers };
+      setErrors(validatePreview(updated));
+      return updated;
+    });
+  };
 
-    if (!data.destination.trim() || data.destination.trim().length < 3) {
-      return 'Informe o destino com pelo menos 3 caracteres.';
-    }
+  const handlePassengerAdd = () => {
+    resetFeedback();
+    setFormData((previous) => {
+      const passengers = [...previous.passageiros, { nome: '', classificacao: '' }];
+      const updated = { ...previous, passageiros: passengers };
+      setErrors(validatePreview(updated));
+      return updated;
+    });
+  };
 
-    if (!data.departureDate || !isValidDate(data.departureDate)) {
-      return 'Informe uma data de ida válida no formato dd/mm/aaaa.';
-    }
-
-    if (!data.departureTime || !isValidTime(data.departureTime)) {
-      return 'Informe um horário de ida válido no formato hh:mm.';
-    }
-
-    if (!data.returnDate || !isValidDate(data.returnDate)) {
-      return 'Informe uma data de volta válida no formato dd/mm/aaaa.';
-    }
-
-    if (!data.returnTime || !isValidTime(data.returnTime)) {
-      return 'Informe um horário de volta válido no formato hh:mm.';
-    }
-
-    const departureDateISO = toDatabaseDate(data.departureDate);
-    const returnDateISO = toDatabaseDate(data.returnDate);
-
-    if (!departureDateISO || !returnDateISO) {
-      return 'Verifique as datas informadas.';
-    }
-
-    if (new Date(`${departureDateISO}T${data.departureTime}:00`) > new Date(`${returnDateISO}T${data.returnTime}:00`)) {
-      return 'A data de volta deve ser posterior à data de ida.';
-    }
-
-    if (!data.airline.trim()) {
-      return 'Informe a companhia aérea.';
-    }
-
-    if (!data.reservationCode.trim()) {
-      return 'Informe o código da reserva.';
-    }
-
-    return null;
+  const handlePassengerRemove = (index: number) => {
+    resetFeedback();
+    setFormData((previous) => {
+      if (previous.passageiros.length <= 1) {
+        return previous;
+      }
+      const passengers = previous.passageiros.filter((_, passengerIndex) => passengerIndex !== index);
+      const updated = { ...previous, passageiros: passengers };
+      setErrors(validatePreview(updated));
+      return updated;
+    });
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -274,28 +153,36 @@ export default function NovaReservaPage() {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const validationError = validateForm(formData);
-    if (validationError) {
-      setErrorMessage(validationError);
+    const validationErrors = validatePreview(formData);
+    setErrors(validationErrors);
+
+    if (hasPreviewErrors(validationErrors)) {
+      setErrorMessage('Revise os campos destacados antes de salvar.');
       return;
     }
 
     setIsSubmitting(true);
 
+    const sanitized = sanitizePreviewDraft(formData);
+    const airlineCandidate = sanitized.vooChegada || sanitized.vooSaida;
+    const ciaAerea = airlineCandidate ? airlineCandidate.slice(0, 2) : null;
+
     const payload = {
-      nome_passageiro: formData.passengerName.trim(),
-      documento: formData.document.replace(/\D/g, ''),
-      tipo_passageiro: formData.passengerType,
-      origem: formData.origin.trim(),
-      destino: formData.destination.trim(),
-      data_ida: toDatabaseDate(formData.departureDate),
-      hora_ida: formData.departureTime,
-      data_volta: toDatabaseDate(formData.returnDate),
-      hora_volta: formData.returnTime,
-      companhia_aerea: formData.airline.trim(),
-      codigo_reserva: formData.reservationCode.trim(),
-      observacoes: formData.notes.trim() || null,
-      usuario_id: user?.id ?? null,
+      operadora: sanitized.operadora || null,
+      codigo_reserva: sanitized.numeroReserva || null,
+      ident: sanitized.ident || null,
+      hotel: sanitized.hotel || null,
+      origem: sanitized.vooChegada || null,
+      destino: sanitized.vooSaida || null,
+      data_voo_ida: toDatabaseDate(sanitized.dataChegada),
+      data_voo_volta: toDatabaseDate(sanitized.dataSaida),
+      hora_voo_ida: sanitized.horarioChegada || null,
+      hora_voo_volta: sanitized.horarioSaida || null,
+      cia_aerea: ciaAerea,
+      passageiro: sanitized.passageiros[0]?.nome || null,
+      passageiros: sanitized.passageiros,
+      regime: sanitized.regime || null,
+      user_id: user?.id ?? null,
     };
 
     const { error } = await supabase.from('reservas').insert([payload]);
@@ -309,68 +196,14 @@ export default function NovaReservaPage() {
     }
 
     setSuccessMessage('Reserva cadastrada com sucesso!');
-    setFormData(initialFormState);
+    setFormData(createEmptyPreview());
+    setErrors(createEmptyPreviewErrors(1));
   };
 
   const handleApplyImportedFields = (data: ReservaPreviewDraft) => {
-    const mapped = mapPreviewToReservationForm(data);
-
-    setFormData((previous) => {
-      const updated = { ...previous };
-
-      if (mapped.passengerName) {
-        updated.passengerName = mapped.passengerName.trim();
-      }
-
-      if (mapped.passengerType) {
-        updated.passengerType = mapped.passengerType;
-      }
-
-      if (mapped.origin) {
-        updated.origin = mapped.origin.toUpperCase();
-      }
-
-      if (mapped.destination) {
-        updated.destination = mapped.destination.toUpperCase();
-      }
-
-      if (mapped.departureDate) {
-        const parsedDepartureDate = parseFlexibleToDate(mapped.departureDate);
-        if (parsedDepartureDate) {
-          updated.departureDate = formatBR(parsedDepartureDate);
-        }
-      }
-
-      if (mapped.departureTime) {
-        updated.departureTime = formatTimeInput(mapped.departureTime);
-      }
-
-      if (mapped.returnDate) {
-        const parsedReturnDate = parseFlexibleToDate(mapped.returnDate);
-        if (parsedReturnDate) {
-          updated.returnDate = formatBR(parsedReturnDate);
-        }
-      }
-
-      if (mapped.returnTime) {
-        updated.returnTime = formatTimeInput(mapped.returnTime);
-      }
-
-      if (mapped.reservationCode) {
-        updated.reservationCode = mapped.reservationCode.toUpperCase();
-      }
-
-      if (mapped.airline) {
-        updated.airline = mapped.airline.trim();
-      }
-
-      if (mapped.notes) {
-        updated.notes = mapped.notes;
-      }
-
-      return updated;
-    });
-
+    resetFeedback();
+    setFormData(data);
+    setErrors(validatePreview(data));
     setToast({ type: 'success', message: 'Campos importados com sucesso. Revise antes de salvar.' });
   };
 
@@ -406,8 +239,7 @@ export default function NovaReservaPage() {
             <p className="text-sm font-medium text-slate-500">Cadastro manual</p>
             <h1 className="text-3xl font-semibold text-slate-900">Nova reserva</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              Preencha as informações abaixo para registrar uma nova reserva no sistema. Todos os campos são obrigatórios,
-              com exceção das observações.
+              Preencha os mesmos campos exibidos no fluxo de importação para registrar uma nova reserva manualmente. Todos os campos são obrigatórios.
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -421,213 +253,21 @@ export default function NovaReservaPage() {
           </div>
         </header>
 
-        <form onSubmit={handleSubmit} className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <section className="grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <label htmlFor="passengerName" className="text-sm font-medium text-slate-700">
-                Nome do passageiro
-              </label>
-              <input
-                id="passengerName"
-                name="passengerName"
-                type="text"
-                value={formData.passengerName}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Nome completo"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="document" className="text-sm font-medium text-slate-700">
-                Documento (RG ou CPF)
-              </label>
-              <input
-                id="document"
-                name="document"
-                type="text"
-                value={formData.document}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="000.000.000-00"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="passengerType" className="text-sm font-medium text-slate-700">
-                Tipo de passageiro
-              </label>
-              <select
-                id="passengerType"
-                name="passengerType"
-                value={formData.passengerType}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                required
-              >
-                <option value="" disabled>
-                  Selecione uma opção
-                </option>
-                {passengerTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="airline" className="text-sm font-medium text-slate-700">
-                Companhia aérea
-              </label>
-              <input
-                id="airline"
-                name="airline"
-                type="text"
-                value={formData.airline}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Ex.: Azul Linhas Aéreas"
-                required
-              />
-            </div>
-          </section>
-
-          <section className="grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <label htmlFor="origin" className="text-sm font-medium text-slate-700">
-                Origem
-              </label>
-              <input
-                id="origin"
-                name="origin"
-                type="text"
-                value={formData.origin}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm uppercase shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Ex.: GRU"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="destination" className="text-sm font-medium text-slate-700">
-                Destino
-              </label>
-              <input
-                id="destination"
-                name="destination"
-                type="text"
-                value={formData.destination}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm uppercase shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Ex.: LIS"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="departureDate" className="text-sm font-medium text-slate-700">
-                Data do voo de ida
-              </label>
-              <input
-                id="departureDate"
-                name="departureDate"
-                type="text"
-                inputMode="numeric"
-                value={formData.departureDate}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="dd/mm/aaaa"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="departureTime" className="text-sm font-medium text-slate-700">
-                Horário do voo de ida
-              </label>
-              <input
-                id="departureTime"
-                name="departureTime"
-                type="text"
-                inputMode="numeric"
-                value={formData.departureTime}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="hh:mm"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="returnDate" className="text-sm font-medium text-slate-700">
-                Data do voo de volta
-              </label>
-              <input
-                id="returnDate"
-                name="returnDate"
-                type="text"
-                inputMode="numeric"
-                value={formData.returnDate}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="dd/mm/aaaa"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="returnTime" className="text-sm font-medium text-slate-700">
-                Horário do voo de volta
-              </label>
-              <input
-                id="returnTime"
-                name="returnTime"
-                type="text"
-                inputMode="numeric"
-                value={formData.returnTime}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="hh:mm"
-                required
-              />
-            </div>
-          </section>
-
-          <section className="grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <label htmlFor="reservationCode" className="text-sm font-medium text-slate-700">
-                Código da reserva
-              </label>
-              <input
-                id="reservationCode"
-                name="reservationCode"
-                type="text"
-                value={formData.reservationCode}
-                onChange={handleChange}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm uppercase shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Ex.: ABC123"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2 md:col-span-1">
-              <label htmlFor="notes" className="text-sm font-medium text-slate-700">
-                Observações
-              </label>
-              <textarea
-                id="notes"
-                name="notes"
-                value={formData.notes}
-                onChange={handleChange}
-                className="h-24 rounded-xl border border-slate-300 px-4 py-2.5 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Anotações adicionais sobre a reserva (opcional)"
-              />
-            </div>
-          </section>
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+        >
+          <ReservaFormFields
+            data={formData}
+            errors={errors}
+            onFieldChange={handleFieldChange}
+            onPassengerChange={handlePassengerChange}
+            onPassengerAdd={handlePassengerAdd}
+            onPassengerRemove={handlePassengerRemove}
+            idPrefix="manual"
+            passengerSectionTitle="Passageiros"
+            addPassengerLabel="Adicionar passageiro"
+          />
 
           {errorMessage ? <p className="text-sm font-medium text-rose-600">{errorMessage}</p> : null}
           {successMessage ? <p className="text-sm font-medium text-emerald-600">{successMessage}</p> : null}
