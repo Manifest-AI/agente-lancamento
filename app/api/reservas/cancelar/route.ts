@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdminClient';
-import { RESERVA_STATUS } from '@/lib/reservas/status';
 import type { ApplyCancellationPayload } from '@/types/reservation-adjustments';
 
 function getAccessToken(headers: Headers) {
@@ -102,7 +101,7 @@ export async function POST(request: Request) {
 
   const { error: updateError } = await adminClient
     .from('reservas')
-    .update({ status: RESERVA_STATUS.CANCELADA })
+    .update({ status: 'Cancelado' })
     .in('id', targetIds)
     .eq('user_id', userId);
 
