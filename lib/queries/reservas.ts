@@ -6,8 +6,10 @@ export type ReservationRecord = {
   id: string;
   user_id?: string | null;
   passageiro: string | null;
+  nome_pax?: string | null;
   operadora: string | null;
   ident: string | null;
+  numero_reserva?: string | null;
   hotel: string | null;
   origem: string | null;
   destino: string | null;
@@ -16,16 +18,25 @@ export type ReservationRecord = {
   hora_voo_ida: string | null;
   data_voo_volta?: string | null;
   hora_voo_volta?: string | null;
+  data_chegada?: string | null;
+  data_saida?: string | null;
+  voo_chegada?: string | null;
+  voo_saida?: string | null;
+  horario_voo_chegada?: string | null;
+  horario_voo_saida?: string | null;
   status: string | null;
   codigo_reserva: string | null;
   localizador?: string | null;
+  tipo_pax?: string | null;
+  obs?: string | null;
   created_at: string;
 };
 
 export type ReservationsSortField =
-  | 'data_voo_ida'
+  | 'data_chegada'
+  | 'data_saida'
   | 'created_at'
-  | 'passageiro'
+  | 'nome_pax'
   | 'status';
 
 export type ReservationsSort = {

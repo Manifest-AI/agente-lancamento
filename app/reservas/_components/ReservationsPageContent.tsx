@@ -32,7 +32,7 @@ function parseSort(value: string | null): ReservationsSort {
   }
 
   const [field, direction] = value.split(':');
-  const allowedFields: ReservationsSortField[] = ['data_voo_ida', 'created_at', 'passageiro', 'status'];
+  const allowedFields: ReservationsSortField[] = ['data_chegada', 'data_saida', 'created_at', 'nome_pax', 'status'];
 
   if (!allowedFields.includes(field as ReservationsSortField)) {
     return DEFAULT_SORT;
@@ -198,7 +198,7 @@ export default function ReservationsPageContent() {
   const handleSortChange = useCallback(
     (field: ReservationsSortField) => {
       const nextDirection =
-        sort.field === field ? (sort.direction === 'asc' ? 'desc' : 'asc') : field === 'passageiro' ? 'asc' : 'desc';
+        sort.field === field ? (sort.direction === 'asc' ? 'desc' : 'asc') : field === 'nome_pax' ? 'asc' : 'desc';
 
       handleNavigate({ page: 1, sort: { field, direction: nextDirection } });
     },

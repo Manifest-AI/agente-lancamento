@@ -96,7 +96,7 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
             name="query"
             value={localFilters.query}
             onChange={handleChange('query')}
-            placeholder="Passageiro, código, IDENT ou localizador"
+            placeholder="Passageiro, nº reserva, IDENT ou hotel"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             aria-label="Buscar reservas"
           />

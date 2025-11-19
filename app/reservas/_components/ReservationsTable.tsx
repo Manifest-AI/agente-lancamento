@@ -37,21 +37,29 @@ function formatDate(value: string | null | undefined) {
     return '-';
   }
 
-  return new Intl.DateTimeFormat('pt-BR').format(date);
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
 }
 
 function formatTime(value: string | null | undefined) {
   if (!value) {
-    return '';
+    return '-';
   }
 
   if (/^\d{2}:\d{2}$/.test(value)) {
     return value;
   }
 
-  const date = new Date(value);
+  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) {
+    return value.slice(0, 5);
+  }
+
+  const date = new Date(`1970-01-01T${value}`);
   if (Number.isNaN(date.getTime())) {
-    return '';
+    return '-';
   }
 
   return new Intl.DateTimeFormat('pt-BR', {
@@ -71,8 +79,11 @@ function formatDateTime(value: string | null | undefined) {
   }
 
   return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(date);
 }
 
@@ -110,19 +121,20 @@ function SortButton({
   );
 }
 
-const headerCells: { label: string; field?: ReservationsSortField; className?: string }[] = [
-  { label: 'Passageiro', field: 'passageiro' },
-  { label: 'Operadora' },
+const headerCells: { label: string; field?: ReservationsSortField }[] = [
   { label: 'IDENT' },
-  { label: 'Hotel' },
-  { label: 'Origem' },
-  { label: 'Destino' },
-  { label: 'Cia. aérea' },
-  { label: 'Ida', field: 'data_voo_ida' },
-  { label: 'Retorno' },
-  { label: 'Status', field: 'status' },
-  { label: 'Código' },
-  { label: 'Criado em', field: 'created_at' },
+  { label: 'Nº RESERVA' },
+  { label: 'OPERADORA' },
+  { label: 'HOTEL' },
+  { label: 'PASSAGEIRO', field: 'nome_pax' },
+  { label: 'DATA CHEGADA', field: 'data_chegada' },
+  { label: 'DATA SAÍDA', field: 'data_saida' },
+  { label: 'VOO CHEGADA' },
+  { label: 'HORÁRIO CHEGADA' },
+  { label: 'VOO SAÍDA' },
+  { label: 'HORÁRIO SAÍDA' },
+  { label: 'STATUS', field: 'status' },
+  { label: 'CRIADO EM', field: 'created_at' },
 ];
 
 function TableHead({ sort, onSortChange }: { sort: ReservationsSort; onSortChange: (field: ReservationsSortField) => void }) {
@@ -147,7 +159,7 @@ function TableHead({ sort, onSortChange }: { sort: ReservationsSort; onSortChang
 function SkeletonRow() {
   return (
     <tr className="animate-pulse border-b border-slate-100 last:border-0">
-      {Array.from({ length: 13 }).map((_, index) => (
+      {Array.from({ length: headerCells.length + 1 }).map((_, index) => (
         <td key={index} className="px-4 py-4">
           <div className="h-4 w-full rounded bg-slate-200" />
         </td>
@@ -204,45 +216,37 @@ export default function ReservationsTable({
       <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
         {reservations.map((reservation) => (
           <tr key={reservation.id} className="transition hover:bg-slate-50">
-            <td className="max-w-[200px] px-4 py-3">
-              <span className="block truncate" title={reservation.passageiro ?? '-'}>
-                {reservation.passageiro ?? '-'}
-              </span>
+            <td className="px-4 py-3 text-xs font-medium uppercase text-slate-500" title={reservation.ident ?? '-'}>
+              {reservation.ident ?? '-'}
+            </td>
+            <td className="px-4 py-3 text-sm text-slate-700" title={reservation.numero_reserva ?? '-'}>
+              {reservation.numero_reserva ?? '-'}
             </td>
             <td className="max-w-[160px] px-4 py-3">
               <span className="block truncate" title={reservation.operadora ?? '-'}>
                 {reservation.operadora ?? '-'}
               </span>
             </td>
-            <td className="px-4 py-3 text-xs font-medium uppercase text-slate-500" title={reservation.ident ?? '-'}>
-              {reservation.ident ?? '-'}
-            </td>
-            <td className="max-w-[160px] px-4 py-3">
+            <td className="max-w-[180px] px-4 py-3">
               <span className="block truncate" title={reservation.hotel ?? '-'}>
                 {reservation.hotel ?? '-'}
               </span>
             </td>
-            <td className="px-4 py-3" title={reservation.origem ?? '-'}>
-              {reservation.origem ?? '-'}
+            <td className="max-w-[200px] px-4 py-3">
+              <span className="block truncate" title={reservation.nome_pax ?? '-'}>
+                {reservation.nome_pax ?? '-'}
+              </span>
             </td>
-            <td className="px-4 py-3" title={reservation.destino ?? '-'}>
-              {reservation.destino ?? '-'}
+            <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_chegada)}</td>
+            <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_saida)}</td>
+            <td className="px-4 py-3 text-sm text-slate-700" title={reservation.voo_chegada ?? '-'}>
+              {reservation.voo_chegada ?? '-'}
             </td>
-            <td className="px-4 py-3" title={reservation.cia_aerea ?? '-'}>
-              {reservation.cia_aerea ?? '-'}
+            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(reservation.horario_voo_chegada)}</td>
+            <td className="px-4 py-3 text-sm text-slate-700" title={reservation.voo_saida ?? '-'}>
+              {reservation.voo_saida ?? '-'}
             </td>
-            <td className="px-4 py-3">
-              <div className="flex flex-col text-xs text-slate-600">
-                <span>{formatDate(reservation.data_voo_ida)}</span>
-                <span>{formatTime(reservation.hora_voo_ida)}</span>
-              </div>
-            </td>
-            <td className="px-4 py-3">
-              <div className="flex flex-col text-xs text-slate-600">
-                <span>{formatDate(reservation.data_voo_volta)}</span>
-                <span>{formatTime(reservation.hora_voo_volta)}</span>
-              </div>
-            </td>
+            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(reservation.horario_voo_saida)}</td>
             <td className="px-4 py-3">
               <span
                 className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
@@ -251,9 +255,6 @@ export default function ReservationsTable({
               >
                 {reservation.status ?? 'Sem status'}
               </span>
-            </td>
-            <td className="px-4 py-3 text-xs font-medium uppercase text-slate-500" title={reservation.codigo_reserva ?? '-'}>
-              {reservation.codigo_reserva ?? '-'}
             </td>
             <td className="px-4 py-3 text-xs text-slate-500">{formatDateTime(reservation.created_at)}</td>
             <td className="px-4 py-3 text-right">
