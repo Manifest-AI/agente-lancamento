@@ -3,8 +3,8 @@ import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { ExtractedReservation } from '@/types/ocr-gpt';
 import { normalizeExtractedReservationDates } from '@/lib/ocr/normalizeReservation';
-import type { ExtractedAlteration } from '@/app/api/reservas/alteracao/extrair/route';
-import { extractAlterationFromText } from '@/app/api/reservas/alteracao/extrair/route';
+import type { ExtractedAlteration } from '@/lib/reservas/alteracao';
+import { extractAlterationFromText } from '@/lib/reservas/alteracao';
 
 export const runtime = 'nodejs';
 
