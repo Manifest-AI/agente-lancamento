@@ -8,6 +8,8 @@ export type AlterationFieldChange = {
     | 'data_saida_bps'
     | 'voo_chegada_codigo'
     | 'voo_saida_codigo'
+    | 'hora_chegada_bps'
+    | 'hora_saida_bps'
     | 'hotel'
     | 'regime'
     | 'ident'
@@ -75,7 +77,7 @@ Formato EXATO do JSON de saída:
   "mudancas": [
     {
       "tipo": "alteracao_campo",
-      "campo": "data_chegada_bps | data_saida_bps | voo_chegada_codigo | voo_saida_codigo | hotel | regime | ident | outro",
+      "campo": "data_chegada_bps | data_saida_bps | voo_chegada_codigo | voo_saida_codigo | hora_chegada_bps | hora_saida_bps | hotel | regime | ident | outro",
       "de": "string | null",
       "para": "string | null"
     },

@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
 import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { DetectedFieldsPreview } from './DetectedFieldsPreview';
-import type {
-  ExtractedReservation,
-} from '@/types/ocr-gpt';
+import { AlterationPreviewPanel } from './AlterationPreviewPanel';
+import { CancellationPreviewPanel } from './CancellationPreviewPanel';
+import type { ExtractedReservation } from '@/types/ocr-gpt';
 import {
   createEmptyPreview,
   createEmptyPreviewErrors,
@@ -17,12 +17,23 @@ import {
 } from '@/app/nova-reserva/mapReservaToForm';
 import type { ReservaPreviewDraft, ReservaPreviewErrors } from '@/app/nova-reserva/mapReservaToForm';
 import { normalizeExtractedReservationDates } from '@/lib/ocr/normalizeReservation';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabaseClient';
+import type { ReservationRecord } from '@/lib/queries/reservas';
+import type { ExtractedAlteration } from '@/lib/reservas/alteracao';
+import type { ExtractedCancellation } from '@/lib/reservas/cancelamento';
+import type {
+  ApplyAlterationPayload,
+  ApplyCancellationPayload,
+  ReservationLookupState,
+} from '@/types/reservation-adjustments';
 
 export type ImportReservaModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onApply: (data: ReservaPreviewDraft) => void;
   onNotify?: (payload: { type: 'success' | 'error'; message: string }) => void;
+  mode?: 'initial' | 'adjustment';
 };
 
 const MAX_FILE_SIZE_MB = 10;
@@ -41,6 +52,23 @@ type ExtractorErrorDetails = {
   requestId?: string;
   status?: number;
 };
+
+function toExtractorErrorDetails(value: unknown): ExtractorErrorDetails | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const details = value as Partial<ExtractorErrorDetails>;
+  if (typeof details.code !== 'string' || typeof details.message !== 'string') {
+    return null;
+  }
+  return {
+    code: details.code,
+    message: details.message,
+    hint: typeof details.hint === 'string' ? details.hint : undefined,
+    requestId: typeof details.requestId === 'string' ? details.requestId : undefined,
+    status: typeof details.status === 'number' ? details.status : undefined,
+  };
+}
 
 function mapErrorCodeToMessage(code: string | undefined) {
   const normalized = code?.toLowerCase();
@@ -65,7 +93,8 @@ function mapErrorCodeToMessage(code: string | undefined) {
   }
 }
 
-export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: ImportReservaModalProps) {
+export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 'initial' }: ImportReservaModalProps) {
+  const { user, session } = useAuth();
   const [activeTab, setActiveTab] = useState<'text' | 'image'>('text');
   const [textInput, setTextInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -77,11 +106,23 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
   const [preview, setPreview] = useState<ReservaPreviewDraft>(() => createEmptyPreview());
   const [errors, setErrors] = useState<ReservaPreviewErrors>(() => createEmptyPreviewErrors(1));
   const [extractedData, setExtractedData] = useState<ExtractedReservation | null>(null);
+  const [alterationResult, setAlterationResult] = useState<ExtractedAlteration | null>(null);
+  const [cancellationResult, setCancellationResult] = useState<ExtractedCancellation | null>(null);
+  const [alterationMatches, setAlterationMatches] = useState<ReservationRecord[]>([]);
+  const [cancellationMatches, setCancellationMatches] = useState<ReservationRecord[]>([]);
+  const [alterationLookupState, setAlterationLookupState] = useState<ReservationLookupState>('idle');
+  const [cancellationLookupState, setCancellationLookupState] = useState<ReservationLookupState>('idle');
+  const [isApplyingAction, setIsApplyingAction] = useState(false);
   const [modelName, setModelName] = useState<string | null>(null);
   const [clipboardSupport, setClipboardSupport] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
   const errorDetailsRef = useRef<HTMLPreElement | null>(null);
 
-  const hasResult = useMemo(() => Boolean(extractedData), [extractedData]);
+  const hasResult = useMemo(() => {
+    if (mode === 'adjustment') {
+      return Boolean(alterationResult || cancellationResult);
+    }
+    return Boolean(extractedData);
+  }, [alterationResult, cancellationResult, extractedData, mode]);
   const acceptedTypes = useMemo(() => ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'], []);
 
   useEffect(() => {
@@ -143,6 +184,98 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     };
   }, [selectedFile]);
 
+  useEffect(() => {
+    if (!isOpen || mode !== 'adjustment') {
+      setAlterationLookupState('idle');
+      setAlterationMatches([]);
+      return;
+    }
+
+    const numero = alterationResult?.referencia_reserva.numero_reserva?.trim();
+    if (!alterationResult || !numero || !user) {
+      setAlterationLookupState(alterationResult && !numero ? 'not_found' : 'idle');
+      setAlterationMatches([]);
+      return;
+    }
+
+    let cancelled = false;
+    setAlterationLookupState('loading');
+    void supabase
+      .from('reservas')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('numero_reserva', numero)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) {
+          return;
+        }
+        if (error) {
+          console.error('Falha ao buscar reserva para alteração', error);
+          setAlterationMatches([]);
+          setAlterationLookupState('error');
+          return;
+        }
+        if (!data || data.length === 0) {
+          setAlterationMatches([]);
+          setAlterationLookupState('not_found');
+          return;
+        }
+        setAlterationMatches(data as ReservationRecord[]);
+        setAlterationLookupState('loaded');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [alterationResult, isOpen, mode, user?.id]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'adjustment') {
+      setCancellationLookupState('idle');
+      setCancellationMatches([]);
+      return;
+    }
+
+    const numero = cancellationResult?.referencia_reserva.numero_reserva?.trim();
+    if (!cancellationResult || !numero || !user) {
+      setCancellationLookupState(cancellationResult && !numero ? 'not_found' : 'idle');
+      setCancellationMatches([]);
+      return;
+    }
+
+    let cancelled = false;
+    setCancellationLookupState('loading');
+    void supabase
+      .from('reservas')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('numero_reserva', numero)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) {
+          return;
+        }
+        if (error) {
+          console.error('Falha ao buscar reserva para cancelamento', error);
+          setCancellationMatches([]);
+          setCancellationLookupState('error');
+          return;
+        }
+        if (!data || data.length === 0) {
+          setCancellationMatches([]);
+          setCancellationLookupState('not_found');
+          return;
+        }
+        setCancellationMatches(data as ReservationRecord[]);
+        setCancellationLookupState('loaded');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cancellationResult, isOpen, mode, user?.id]);
+
   const resetState = useCallback(() => {
     setActiveTab('text');
     setTextInput('');
@@ -155,6 +288,13 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setPreview(createEmptyPreview());
     setErrors(createEmptyPreviewErrors(1));
     setExtractedData(null);
+    setAlterationResult(null);
+    setCancellationResult(null);
+    setAlterationMatches([]);
+    setCancellationMatches([]);
+    setAlterationLookupState('idle');
+    setCancellationLookupState('idle');
+    setIsApplyingAction(false);
     setModelName(null);
     setClipboardSupport('unknown');
     errorDetailsRef.current = null;
@@ -221,8 +361,260 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     }
   };
 
+
+  const runTextIngestion = useCallback(
+    async (textContent: string, options?: { manageProcessingState?: boolean }) => {
+      const manageProcessingState = options?.manageProcessingState ?? true;
+      if (manageProcessingState) {
+        setIsProcessing(true);
+      }
+      setErrorMessage(null);
+      setErrorDetails(null);
+      setShowErrorDetails(false);
+      errorDetailsRef.current = null;
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
+        let response: Response;
+        try {
+          response = await fetch('/api/reservas/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conteudo: textContent }),
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          const status = response.status || undefined;
+          const details: ExtractorErrorDetails = {
+            code: 'invalid_json_response',
+            message: 'Resposta inválida do servidor.',
+            hint: 'Não foi possível ler a resposta do servidor.',
+            status,
+          };
+          const userMessage = mapErrorCodeToMessage(details.code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+          setExtractedData(null);
+          setModelName(null);
+          return;
+        }
+
+        type IngestSuccessResponse = {
+          ok: true;
+          classificacao?: Record<string, unknown> | null;
+          reserva?: ExtractedReservation | null;
+          suportado?: boolean;
+          model?: string | null;
+          requestId?: string;
+          alteracao?: ExtractedAlteration | null;
+          cancelamento?: ExtractedCancellation | null;
+        };
+
+        type IngestErrorResponse = {
+          ok: false;
+          error?: { code?: string; message?: string; hint?: string };
+          requestId?: string;
+        };
+
+        const parsed = payload as IngestSuccessResponse | IngestErrorResponse | undefined;
+
+        if (!response.ok || !parsed?.ok) {
+          const errorPayload = !parsed || typeof parsed !== 'object' ? undefined : (parsed as any).error;
+          const code = typeof errorPayload?.code === 'string' ? errorPayload.code : 'unknown_error';
+          const message = typeof errorPayload?.message === 'string' ? errorPayload.message : 'Não foi possível concluir a extração.';
+          const hint = typeof errorPayload?.hint === 'string' ? errorPayload.hint : undefined;
+          const details: ExtractorErrorDetails = {
+            code,
+            message,
+            hint,
+            requestId: typeof parsed?.requestId === 'string' ? parsed.requestId : undefined,
+            status: response.status || undefined,
+          };
+          const userMessage = mapErrorCodeToMessage(code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+          setExtractedData(null);
+          setModelName(null);
+          return;
+        }
+
+        const suportado = parsed.suportado ?? false;
+        const data = parsed.reserva ?? null;
+        const alteration = parsed.alteracao ?? null;
+        const cancellation = parsed.cancelamento ?? null;
+        const tipoDocumento =
+          (parsed.classificacao as { tipo_documento?: string } | undefined)?.tipo_documento ?? null;
+        setModelName(parsed?.model ?? null);
+
+        if (mode === 'adjustment') {
+          setPreview(createEmptyPreview());
+          setErrors(createEmptyPreviewErrors(1));
+          setExtractedData(null);
+
+          if (tipoDocumento === 'alteracao' && alteration) {
+            setAlterationResult(alteration);
+            setCancellationResult(null);
+            setErrorMessage(null);
+            onNotify?.({ type: 'success', message: 'Alteração identificada. Revise antes de aplicar.' });
+            return;
+          }
+
+          if (tipoDocumento === 'cancelamento' && cancellation) {
+            setCancellationResult(cancellation);
+            setAlterationResult(null);
+            setErrorMessage(null);
+            onNotify?.({ type: 'success', message: 'Cancelamento identificado. Revise antes de aplicar.' });
+            return;
+          }
+
+          if (tipoDocumento === 'reserva_inicial' && data) {
+            setErrorMessage('Este documento parece ser uma reserva inicial. Utilize o botão "Importar reserva" para cadastrá-la.');
+            setAlterationResult(null);
+            setCancellationResult(null);
+            setErrorDetails(null);
+            setShowErrorDetails(false);
+            return;
+          }
+
+          setAlterationResult(null);
+          setCancellationResult(null);
+          setErrorMessage('Não foi possível identificar alterações ou cancelamentos neste documento.');
+          setErrorDetails(null);
+          setShowErrorDetails(false);
+          return;
+        }
+
+        if (!suportado || !data || tipoDocumento !== 'reserva_inicial') {
+          let message = 'Não foi possível identificar uma reserva inicial neste documento.';
+          if (tipoDocumento === 'alteracao') {
+            message = 'Este documento parece uma alteração. Use o botão "Alterações e Cancelamentos".';
+          } else if (tipoDocumento === 'cancelamento') {
+            message = 'Este documento parece um cancelamento. Use o botão "Alterações e Cancelamentos".';
+          }
+          setErrorMessage(message);
+          setErrorDetails(null);
+          setShowErrorDetails(false);
+          setExtractedData(null);
+          setAlterationResult(null);
+          setCancellationResult(null);
+          return;
+        }
+
+        const normalizedData = normalizeExtractedReservationDates(data);
+        const nextPreview = mapReservaToForm(normalizedData);
+        const nextErrors = validatePreview(nextPreview);
+        setPreview(nextPreview);
+        setErrors(nextErrors);
+        setExtractedData(normalizedData);
+        setAlterationResult(null);
+        setCancellationResult(null);
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+
+        if (hasPreviewErrors(nextErrors)) {
+          onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
+        } else {
+          onNotify?.({ type: 'success', message: 'Extração concluída. Revise e aplique os dados.' });
+        }
+      } catch (error) {
+        console.error('Erro ao chamar o ingestor de reservas', error);
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          const details: ExtractorErrorDetails = {
+            code: 'timeout',
+            message: 'Tempo limite atingido na solicitação.',
+            hint: 'timeout',
+          };
+          const userMessage = mapErrorCodeToMessage(details.code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+        } else {
+          const details: ExtractorErrorDetails = {
+            code: 'network_error',
+            message: error instanceof Error ? error.message : 'Erro de rede ao contatar o servidor.',
+          };
+          const userMessage = mapErrorCodeToMessage(details.code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+        }
+        setExtractedData(null);
+        setModelName(null);
+      } finally {
+        if (manageProcessingState) {
+          setIsProcessing(false);
+        }
+      }
+    },
+    [mode, onNotify],
+  );
+
   const runExtraction = useCallback(
     async (formData: FormData) => {
+      if (mode === 'adjustment') {
+        setIsProcessing(true);
+        setErrorMessage(null);
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+        errorDetailsRef.current = null;
+        try {
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
+          let response: Response;
+          try {
+            response = await fetch('/api/reservas/ocr-text', {
+              method: 'POST',
+              body: formData,
+              signal: controller.signal,
+            });
+          } finally {
+            window.clearTimeout(timeoutId);
+          }
+
+          type OcrTextSuccess = { ok: true; conteudo: string; model?: string | null };
+          type OcrTextError = { ok: false; error?: string };
+
+          let payload: OcrTextSuccess | OcrTextError | undefined;
+          try {
+            payload = (await response.json()) as OcrTextSuccess | OcrTextError | undefined;
+          } catch {
+            setErrorMessage('Resposta inválida do servidor.');
+            setErrorDetails(null);
+            setShowErrorDetails(false);
+            return;
+          }
+
+          if (!response.ok || !payload?.ok || typeof payload.conteudo !== 'string') {
+            const message = payload && 'error' in payload && payload.error
+              ? payload.error
+              : 'Não foi possível transcrever o arquivo enviado.';
+            setErrorMessage(message);
+            setErrorDetails(null);
+            setShowErrorDetails(false);
+            return;
+          }
+
+          await runTextIngestion(payload.conteudo, { manageProcessingState: false });
+        } catch (error) {
+          console.error('Erro ao executar OCR de texto', error);
+          setErrorMessage('Falha ao processar o arquivo. Tente novamente.');
+          setErrorDetails(null);
+          setShowErrorDetails(false);
+        } finally {
+          setIsProcessing(false);
+        }
+        return;
+      }
+
       setIsProcessing(true);
       setErrorMessage(null);
       setErrorDetails(null);
@@ -340,148 +732,9 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
         setIsProcessing(false);
       }
     },
-    [onNotify],
+    [mode, onNotify, runTextIngestion],
   );
 
-  const runTextIngestion = useCallback(
-    async (textContent: string) => {
-      setIsProcessing(true);
-      setErrorMessage(null);
-      setErrorDetails(null);
-      setShowErrorDetails(false);
-      errorDetailsRef.current = null;
-      try {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
-        let response: Response;
-        try {
-          response = await fetch('/api/reservas/ingest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ conteudo: textContent }),
-            signal: controller.signal,
-          });
-        } finally {
-          window.clearTimeout(timeoutId);
-        }
-
-        let payload: unknown;
-        try {
-          payload = await response.json();
-        } catch {
-          const status = response.status || undefined;
-          const details: ExtractorErrorDetails = {
-            code: 'invalid_json_response',
-            message: 'Resposta inválida do servidor.',
-            hint: 'Não foi possível ler a resposta do servidor.',
-            status,
-          };
-          const userMessage = mapErrorCodeToMessage(details.code);
-          setErrorMessage(userMessage);
-          setErrorDetails(details);
-          setShowErrorDetails(false);
-          setExtractedData(null);
-          setModelName(null);
-          return;
-        }
-
-        type IngestSuccessResponse = {
-          ok: true;
-          classificacao?: Record<string, unknown> | null;
-          reserva?: ExtractedReservation | null;
-          suportado?: boolean;
-          model?: string | null;
-          requestId?: string;
-        };
-
-        type IngestErrorResponse = {
-          ok: false;
-          error?: { code?: string; message?: string; hint?: string };
-          requestId?: string;
-        };
-
-        const parsed = payload as IngestSuccessResponse | IngestErrorResponse | undefined;
-
-        if (!response.ok || !parsed?.ok) {
-          const errorPayload = !parsed || typeof parsed !== 'object' ? undefined : (parsed as any).error;
-          const code = typeof errorPayload?.code === 'string' ? errorPayload.code : 'unknown_error';
-          const message = typeof errorPayload?.message === 'string' ? errorPayload.message : 'Não foi possível concluir a extração.';
-          const hint = typeof errorPayload?.hint === 'string' ? errorPayload.hint : undefined;
-          const details: ExtractorErrorDetails = {
-            code,
-            message,
-            hint,
-            requestId: typeof parsed?.requestId === 'string' ? parsed.requestId : undefined,
-            status: response.status || undefined,
-          };
-          const userMessage = mapErrorCodeToMessage(code);
-          setErrorMessage(userMessage);
-          setErrorDetails(details);
-          setShowErrorDetails(false);
-          setExtractedData(null);
-          setModelName(null);
-          return;
-        }
-
-        const suportado = parsed.suportado ?? false;
-        const data = parsed.reserva ?? null;
-
-        if (!suportado || !data) {
-          setErrorMessage(
-            'Este documento foi identificado como alteração/cancelamento ou tipo não suportado. No momento, apenas reservas iniciais são processadas automaticamente.',
-          );
-          setErrorDetails(null);
-          setShowErrorDetails(false);
-          setExtractedData(null);
-          setModelName(parsed?.model ?? null);
-          return;
-        }
-
-        const normalizedData = normalizeExtractedReservationDates(data);
-        const nextPreview = mapReservaToForm(normalizedData);
-        const nextErrors = validatePreview(nextPreview);
-        setPreview(nextPreview);
-        setErrors(nextErrors);
-        setExtractedData(normalizedData);
-        setModelName(parsed?.model ?? null);
-        setErrorDetails(null);
-        setShowErrorDetails(false);
-
-        if (hasPreviewErrors(nextErrors)) {
-          onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
-        } else {
-          onNotify?.({ type: 'success', message: 'Extração concluída. Revise e aplique os dados.' });
-        }
-      } catch (error) {
-        console.error('Erro ao chamar o ingestor de reservas', error);
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          const details: ExtractorErrorDetails = {
-            code: 'timeout',
-            message: 'Tempo limite atingido na solicitação.',
-            hint: 'timeout',
-          };
-          const userMessage = mapErrorCodeToMessage(details.code);
-          setErrorMessage(userMessage);
-          setErrorDetails(details);
-          setShowErrorDetails(false);
-        } else {
-          const details: ExtractorErrorDetails = {
-            code: 'network_error',
-            message: error instanceof Error ? error.message : 'Erro de rede ao contatar o servidor.',
-          };
-          const userMessage = mapErrorCodeToMessage(details.code);
-          setErrorMessage(userMessage);
-          setErrorDetails(details);
-          setShowErrorDetails(false);
-        }
-        setExtractedData(null);
-        setModelName(null);
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [onNotify],
-  );
 
   const handleExtractFromText = async () => {
     const trimmed = textInput.trim();
@@ -514,6 +767,13 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     setPreview(createEmptyPreview());
     setErrors(createEmptyPreviewErrors(1));
     setExtractedData(null);
+    setAlterationResult(null);
+    setCancellationResult(null);
+    setAlterationMatches([]);
+    setCancellationMatches([]);
+    setAlterationLookupState('idle');
+    setCancellationLookupState('idle');
+    setIsApplyingAction(false);
     setErrorMessage(null);
     setErrorDetails(null);
     setShowErrorDetails(false);
@@ -612,6 +872,100 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     handleClose();
   };
 
+  const handleApplyAlteration = useCallback(
+    async (payload: ApplyAlterationPayload) => {
+      if (!session?.access_token) {
+        setErrorMessage('Sessão expirada. Faça login novamente.');
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+        errorDetailsRef.current = null;
+        return;
+      }
+
+      setIsApplyingAction(true);
+      setErrorMessage(null);
+      setErrorDetails(null);
+      setShowErrorDetails(false);
+      errorDetailsRef.current = null;
+      try {
+        const response = await fetch('/api/reservas/alterar', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = (await response.json()) as { ok?: boolean; error?: string; details?: unknown };
+        if (!response.ok || !result?.ok) {
+          const details = toExtractorErrorDetails(result?.details);
+          setErrorMessage(result?.error ?? 'Não foi possível aplicar a alteração.');
+          setErrorDetails(details);
+          setShowErrorDetails(Boolean(details));
+          return;
+        }
+
+        onNotify?.({ type: 'success', message: 'Alteração aplicada com sucesso.' });
+        handleClose();
+      } catch (error) {
+        console.error('Erro ao aplicar alteração', error);
+        setErrorMessage('Não foi possível aplicar a alteração. Tente novamente.');
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+      } finally {
+        setIsApplyingAction(false);
+      }
+    },
+    [handleClose, onNotify, session?.access_token],
+  );
+
+  const handleApplyCancellation = useCallback(
+    async (payload: ApplyCancellationPayload) => {
+      if (!session?.access_token) {
+        setErrorMessage('Sessão expirada. Faça login novamente.');
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+        errorDetailsRef.current = null;
+        return;
+      }
+
+      setIsApplyingAction(true);
+      setErrorMessage(null);
+      setErrorDetails(null);
+      setShowErrorDetails(false);
+      errorDetailsRef.current = null;
+      try {
+        const response = await fetch('/api/reservas/cancelar', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = (await response.json()) as { ok?: boolean; error?: string; details?: unknown };
+        if (!response.ok || !result?.ok) {
+          const details = toExtractorErrorDetails(result?.details);
+          setErrorMessage(result?.error ?? 'Não foi possível aplicar o cancelamento.');
+          setErrorDetails(details);
+          setShowErrorDetails(Boolean(details));
+          return;
+        }
+
+        onNotify?.({ type: 'success', message: 'Cancelamento aplicado com sucesso.' });
+        handleClose();
+      } catch (error) {
+        console.error('Erro ao aplicar cancelamento', error);
+        setErrorMessage('Não foi possível aplicar o cancelamento. Tente novamente.');
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+      } finally {
+        setIsApplyingAction(false);
+      }
+    },
+    [handleClose, onNotify, session?.access_token],
+  );
+
   const hasPreview = useMemo(
     () => Boolean(filePreviewUrl && selectedFile && selectedFile.type.startsWith('image/')),
     [filePreviewUrl, selectedFile],
@@ -678,7 +1032,9 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-slate-900">Importar reserva</h2>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {mode === 'adjustment' ? 'Alterações e cancelamentos' : 'Importar reserva'}
+                </h2>
                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
               </div>
               {modelName ? (
@@ -719,6 +1075,12 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
               Imagem
             </button>
           </div>
+
+          {mode === 'adjustment' ? (
+            <p className="text-xs text-slate-500">
+              Cole o e-mail ou documento de alteração/cancelamento e confirme os dados antes de aplicar ao banco.
+            </p>
+          ) : null}
 
           {errorMessage && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -906,7 +1268,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
             </div>
           )}
 
-          {hasResult && (
+          {mode === 'initial' && hasResult ? (
             <DetectedFieldsPreview
               data={preview}
               errors={errors}
@@ -919,7 +1281,31 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
               onDiscard={handleClose}
               isApplying={isProcessing}
             />
-          )}
+          ) : null}
+
+          {mode === 'adjustment' && alterationResult ? (
+            <AlterationPreviewPanel
+              alteration={alterationResult}
+              reservations={alterationMatches}
+              lookupStatus={alterationLookupState}
+              onApply={handleApplyAlteration}
+              onRetry={handleRetry}
+              onDiscard={handleClose}
+              isApplying={isApplyingAction}
+            />
+          ) : null}
+
+          {mode === 'adjustment' && !alterationResult && cancellationResult ? (
+            <CancellationPreviewPanel
+              cancellation={cancellationResult}
+              reservations={cancellationMatches}
+              lookupStatus={cancellationLookupState}
+              onApply={handleApplyCancellation}
+              onRetry={handleRetry}
+              onDiscard={handleClose}
+              isApplying={isApplyingAction}
+            />
+          ) : null}
             </div>
           </div>
         </div>

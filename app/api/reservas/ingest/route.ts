@@ -5,6 +5,8 @@ import type { ExtractedReservation } from '@/types/ocr-gpt';
 import { normalizeExtractedReservationDates } from '@/lib/ocr/normalizeReservation';
 import type { ExtractedAlteration } from '@/lib/reservas/alteracao';
 import { extractAlterationFromText } from '@/lib/reservas/alteracao';
+import type { ExtractedCancellation } from '@/lib/reservas/cancelamento';
+import { extractCancellationFromText } from '@/lib/reservas/cancelamento';
 
 export const runtime = 'nodejs';
 
@@ -172,6 +174,7 @@ type SuccessResponse = {
   reserva: ExtractedReservation | null;
   suportado: boolean;
   alteracao?: ExtractedAlteration | null;
+  cancelamento?: ExtractedCancellation | null;
 };
 
 function makeErrorResponse(status: number, message: string, details?: Record<string, unknown>) {
@@ -310,6 +313,7 @@ export async function POST(request: Request) {
         classificacao,
         reserva: null,
         alteracao: alteration,
+        cancelamento: null,
         suportado: true,
       };
       return NextResponse.json(payload, { status: 200 });
@@ -319,11 +323,31 @@ export async function POST(request: Request) {
     }
   }
 
+  if (classificacao.tipo_documento === 'cancelamento') {
+    try {
+      const cancellation = await extractCancellationFromText(openai, model, conteudo);
+      const payload: SuccessResponse = {
+        ok: true,
+        classificacao,
+        reserva: null,
+        alteracao: null,
+        cancelamento: cancellation,
+        suportado: true,
+      };
+      return NextResponse.json(payload, { status: 200 });
+    } catch (error) {
+      const details = error instanceof Error ? { message: error.message } : undefined;
+      return makeErrorResponse(500, 'falha ao extrair cancelamento', details);
+    }
+  }
+
   if (classificacao.tipo_documento !== 'reserva_inicial') {
     const payload: SuccessResponse = {
       ok: true,
       classificacao,
       reserva: null,
+      alteracao: null,
+      cancelamento: null,
       suportado: false,
     };
     return NextResponse.json(payload, { status: 200 });
@@ -336,6 +360,8 @@ export async function POST(request: Request) {
       ok: true,
       classificacao,
       reserva: normalized,
+      alteracao: null,
+      cancelamento: null,
       suportado: true,
     };
     return NextResponse.json(payload, { status: 200 });
