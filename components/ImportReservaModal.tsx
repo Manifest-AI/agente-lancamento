@@ -34,13 +34,6 @@ async function readFileAsFormData(file: File) {
   return formData;
 }
 
-function buildTextFormData(text: string) {
-  const formData = new FormData();
-  formData.append('type', 'text');
-  formData.append('text', text);
-  return formData;
-}
-
 type ExtractorErrorDetails = {
   code: string;
   message: string;
@@ -350,6 +343,146 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
     [onNotify],
   );
 
+  const runTextIngestion = useCallback(
+    async (textContent: string) => {
+      setIsProcessing(true);
+      setErrorMessage(null);
+      setErrorDetails(null);
+      setShowErrorDetails(false);
+      errorDetailsRef.current = null;
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
+        let response: Response;
+        try {
+          response = await fetch('/api/reservas/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conteudo: textContent }),
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          const status = response.status || undefined;
+          const details: ExtractorErrorDetails = {
+            code: 'invalid_json_response',
+            message: 'Resposta inválida do servidor.',
+            hint: 'Não foi possível ler a resposta do servidor.',
+            status,
+          };
+          const userMessage = mapErrorCodeToMessage(details.code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+          setExtractedData(null);
+          setModelName(null);
+          return;
+        }
+
+        type IngestSuccessResponse = {
+          ok: true;
+          classificacao?: Record<string, unknown> | null;
+          reserva?: ExtractedReservation | null;
+          suportado?: boolean;
+          model?: string | null;
+          requestId?: string;
+        };
+
+        type IngestErrorResponse = {
+          ok: false;
+          error?: { code?: string; message?: string; hint?: string };
+          requestId?: string;
+        };
+
+        const parsed = payload as IngestSuccessResponse | IngestErrorResponse | undefined;
+
+        if (!response.ok || !parsed?.ok) {
+          const errorPayload = !parsed || typeof parsed !== 'object' ? undefined : (parsed as any).error;
+          const code = typeof errorPayload?.code === 'string' ? errorPayload.code : 'unknown_error';
+          const message = typeof errorPayload?.message === 'string' ? errorPayload.message : 'Não foi possível concluir a extração.';
+          const hint = typeof errorPayload?.hint === 'string' ? errorPayload.hint : undefined;
+          const details: ExtractorErrorDetails = {
+            code,
+            message,
+            hint,
+            requestId: typeof parsed?.requestId === 'string' ? parsed.requestId : undefined,
+            status: response.status || undefined,
+          };
+          const userMessage = mapErrorCodeToMessage(code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+          setExtractedData(null);
+          setModelName(null);
+          return;
+        }
+
+        const suportado = parsed.suportado ?? false;
+        const data = parsed.reserva ?? null;
+
+        if (!suportado || !data) {
+          setErrorMessage(
+            'Este documento foi identificado como alteração/cancelamento ou tipo não suportado. No momento, apenas reservas iniciais são processadas automaticamente.',
+          );
+          setErrorDetails(null);
+          setShowErrorDetails(false);
+          setExtractedData(null);
+          setModelName(parsed?.model ?? null);
+          return;
+        }
+
+        const normalizedData = normalizeExtractedReservationDates(data);
+        const nextPreview = mapReservaToForm(normalizedData);
+        const nextErrors = validatePreview(nextPreview);
+        setPreview(nextPreview);
+        setErrors(nextErrors);
+        setExtractedData(normalizedData);
+        setModelName(parsed?.model ?? null);
+        setErrorDetails(null);
+        setShowErrorDetails(false);
+
+        if (hasPreviewErrors(nextErrors)) {
+          onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
+        } else {
+          onNotify?.({ type: 'success', message: 'Extração concluída. Revise e aplique os dados.' });
+        }
+      } catch (error) {
+        console.error('Erro ao chamar o ingestor de reservas', error);
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          const details: ExtractorErrorDetails = {
+            code: 'timeout',
+            message: 'Tempo limite atingido na solicitação.',
+            hint: 'timeout',
+          };
+          const userMessage = mapErrorCodeToMessage(details.code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+        } else {
+          const details: ExtractorErrorDetails = {
+            code: 'network_error',
+            message: error instanceof Error ? error.message : 'Erro de rede ao contatar o servidor.',
+          };
+          const userMessage = mapErrorCodeToMessage(details.code);
+          setErrorMessage(userMessage);
+          setErrorDetails(details);
+          setShowErrorDetails(false);
+        }
+        setExtractedData(null);
+        setModelName(null);
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [onNotify],
+  );
+
   const handleExtractFromText = async () => {
     const trimmed = textInput.trim();
     if (trimmed.length < 20) {
@@ -361,8 +494,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify }: Impor
       return;
     }
 
-    const formData = buildTextFormData(trimmed);
-    await runExtraction(formData);
+    await runTextIngestion(trimmed);
   };
 
   const handleExtractFromImage = async () => {
