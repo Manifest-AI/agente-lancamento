@@ -3,6 +3,8 @@ import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { ExtractedReservation } from '@/types/ocr-gpt';
 import { normalizeExtractedReservationDates } from '@/lib/ocr/normalizeReservation';
+import type { ExtractedAlteration } from '@/app/api/reservas/alteracao/extrair/route';
+import { extractAlterationFromText } from '@/app/api/reservas/alteracao/extrair/route';
 
 export const runtime = 'nodejs';
 
@@ -169,6 +171,7 @@ type SuccessResponse = {
   classificacao: ClassifierResult;
   reserva: ExtractedReservation | null;
   suportado: boolean;
+  alteracao?: ExtractedAlteration | null;
 };
 
 function makeErrorResponse(status: number, message: string, details?: Record<string, unknown>) {
@@ -297,6 +300,23 @@ export async function POST(request: Request) {
   } catch (error) {
     const details = error instanceof Error ? { message: error.message } : undefined;
     return makeErrorResponse(500, 'falha ao classificar documento', details);
+  }
+
+  if (classificacao.tipo_documento === 'alteracao') {
+    try {
+      const alteration = await extractAlterationFromText(openai, model, conteudo);
+      const payload: SuccessResponse = {
+        ok: true,
+        classificacao,
+        reserva: null,
+        alteracao: alteration,
+        suportado: true,
+      };
+      return NextResponse.json(payload, { status: 200 });
+    } catch (error) {
+      const details = error instanceof Error ? { message: error.message } : undefined;
+      return makeErrorResponse(500, 'falha ao extrair alteração', details);
+    }
   }
 
   if (classificacao.tipo_documento !== 'reserva_inicial') {
