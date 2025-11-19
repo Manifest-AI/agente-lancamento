@@ -34,7 +34,22 @@ function formatDate(value: string | null | undefined) {
     return '-';
   }
 
-  const date = new Date(value);
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '-';
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return `${day}/${month}/${year}`;
+  }
+
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) {
     return '-';
   }
