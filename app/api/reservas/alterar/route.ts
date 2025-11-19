@@ -253,7 +253,7 @@ export async function POST(request: Request) {
     if (targetIds.length > 0) {
       const { error: cancelError } = await adminClient
         .from('reservas')
-        .update({ status: 'Cancelado' })
+        .update({ status: 'Cancelada' })
         .in('id', targetIds)
         .eq('user_id', userId);
 
@@ -281,7 +281,7 @@ export async function POST(request: Request) {
       hotel: updates.find((item) => item.field === 'hotel')?.value ?? baseReservation.hotel,
       numero_reserva: numeroReserva,
       user_id: userId,
-      status: 'Ativo',
+      status: baseReservation.status ?? 'Confirmada',
       obs: baseReservation.obs ?? null,
     } as Record<string, string | null>;
 

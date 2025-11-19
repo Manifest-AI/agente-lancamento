@@ -101,7 +101,7 @@ export async function POST(request: Request) {
 
   const { error: updateError } = await adminClient
     .from('reservas')
-    .update({ status: 'Cancelado' })
+    .update({ status: 'Cancelada' })
     .in('id', targetIds)
     .eq('user_id', userId);
 
