@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { ReservationRecord } from '@/lib/queries/reservas';
+import { CANCELLATION_STATUS, RESERVATION_STATUS } from '@/lib/reservas/status';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdminClient';
 import type {
   ApplyAlterationPayload,
@@ -253,7 +254,7 @@ export async function POST(request: Request) {
     if (targetIds.length > 0) {
       const { error: cancelError } = await adminClient
         .from('reservas')
-        .update({ status: 'Cancelada' })
+        .update({ status: CANCELLATION_STATUS })
         .in('id', targetIds)
         .eq('user_id', userId);
 
@@ -281,7 +282,7 @@ export async function POST(request: Request) {
       hotel: updates.find((item) => item.field === 'hotel')?.value ?? baseReservation.hotel,
       numero_reserva: numeroReserva,
       user_id: userId,
-      status: baseReservation.status ?? 'Confirmada',
+      status: baseReservation.status ?? RESERVATION_STATUS.CONFIRMED,
       obs: baseReservation.obs ?? null,
     } as Record<string, string | null>;
 
