@@ -23,8 +23,10 @@ const statusStyles: Record<string, string> = {
   'Em análise': 'bg-amber-100/80 text-amber-700',
   Pendente: 'bg-sky-100/80 text-sky-700',
   Cancelada: 'bg-rose-100/80 text-rose-700',
+  Cancelado: 'bg-rose-100/80 text-rose-700',
   Reembolsada: 'bg-purple-100/80 text-purple-700',
   Finalizada: 'bg-slate-200 text-slate-700',
+  Ativo: 'bg-emerald-100/80 text-emerald-700',
 };
 
 function formatDate(value: string | null | undefined) {
