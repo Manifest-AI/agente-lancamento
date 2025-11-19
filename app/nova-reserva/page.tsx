@@ -177,7 +177,7 @@ export default function NovaReservaPage() {
       return null;
     };
 
-    const payload = {
+    const basePayload = {
       operadora: sanitized.operadora || null,
       data_chegada: toDatabaseDate(sanitized.dataChegada),
       data_saida: toDatabaseDate(sanitized.dataSaida),
@@ -188,13 +188,17 @@ export default function NovaReservaPage() {
       horario_voo_saida: sanitized.horarioSaida || null,
       hotel: sanitized.hotel || null,
       numero_reserva: sanitized.numeroReserva || null,
-      nome_pax: sanitized.passageiros[0]?.nome || null,
-      tipo_pax: mapClassificationToTipoPax(sanitized.passageiros[0]?.classificacao) || null,
       obs: null,
       user_id: user?.id ?? null,
     };
 
-    const { error } = await supabase.from('reservas').insert([payload]);
+    const passengersPayload = sanitized.passageiros.map((passageiro) => ({
+      ...basePayload,
+      nome_pax: passageiro?.nome || null,
+      tipo_pax: mapClassificationToTipoPax(passageiro?.classificacao) || null,
+    }));
+
+    const { error } = await supabase.from('reservas').insert(passengersPayload);
 
     setIsSubmitting(false);
 
