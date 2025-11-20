@@ -235,7 +235,6 @@ export default function ReservationDetailsModal({ reservation, open, onClose, on
       ident: sanitized.ident || null,
       status: sanitized.status || null,
       nome_pax: sanitized.passageiro || null,
-      passageiro: sanitized.passageiro || null,
     } satisfies UpdateReservationPayload;
 
     setIsSaving(true);
