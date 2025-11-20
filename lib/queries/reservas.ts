@@ -180,3 +180,42 @@ export async function deleteReservation(id: string, userId?: string) {
     throw error;
   }
 }
+
+export type UpdateReservationPayload = Partial<
+  Pick<
+    ReservationRecord,
+    | 'operadora'
+    | 'data_chegada'
+    | 'data_saida'
+    | 'ident'
+    | 'voo_chegada'
+    | 'voo_saida'
+    | 'horario_voo_chegada'
+    | 'horario_voo_saida'
+    | 'hotel'
+    | 'numero_reserva'
+    | 'status'
+    | 'nome_pax'
+    | 'passageiro'
+  >
+>;
+
+export async function updateReservation(
+  id: string,
+  payload: UpdateReservationPayload,
+  userId?: string,
+): Promise<ReservationRecord> {
+  let query = supabase.from('reservas').update(payload).eq('id', id);
+
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.select('*').single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as ReservationRecord;
+}
