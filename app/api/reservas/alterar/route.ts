@@ -423,11 +423,13 @@ export async function POST(request: Request) {
       };
 
       const targetType = mapPassengerType(swapPair.target.tipo_pax);
-      const effectiveType = normalizedType ?? targetType;
+      const effectiveType = normalizedType ?? targetType ?? 'A';
 
-      if (effectiveType) {
-        swapPayload.tipo_pax = effectiveType;
+      if (!effectiveType) {
+        return buildErrorResponse(400, 'Tipo de passageiro inválido para troca.');
       }
+
+      swapPayload.tipo_pax = effectiveType;
 
       const { error: swapError } = await adminClient
         .from('reservas')
