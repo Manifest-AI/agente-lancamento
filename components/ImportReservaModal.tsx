@@ -1552,7 +1552,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
       </div>
 
       {shouldRenderDetailModal ? (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/40 px-4 py-6 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 px-4 py-6 backdrop-blur-sm">
           <div className="relative w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div className="flex flex-col gap-1">
