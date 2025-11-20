@@ -1001,6 +1001,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply: _onApply, onNotif
       previous.map((item) => (item.id === fileId ? { ...item, isSaving: true } : item)),
     );
 
+    let hasSaved = false;
+
     try {
       const { error } = await saveReservation(sanitized, { userId: user?.id ?? null, client: supabase });
       if (error) {
@@ -1009,22 +1011,21 @@ export function ImportReservaModal({ isOpen, onClose, onApply: _onApply, onNotif
         return;
       }
 
-      setFileItems((previous) =>
-        previous.map((item) =>
-          item.id === fileId
-            ? { ...item, preview: sanitized, errors: validationErrors, isSaving: false, isSaved: true }
-            : item,
-        ),
-      );
+      setFileItems((previous) => previous.filter((item) => item.id !== fileId));
+      hasSaved = true;
       onNotify?.({ type: 'success', message: 'Reserva salva com sucesso.' });
     } catch (error) {
       console.error('Erro inesperado ao salvar reserva importada', error);
       onNotify?.({ type: 'error', message: 'Não foi possível salvar a reserva. Tente novamente.' });
     } finally {
       setSavingFileId(null);
-      setFileItems((previous) =>
-        previous.map((item) => (item.id === fileId ? { ...item, isSaving: false } : item)),
-      );
+      if (!hasSaved) {
+        setFileItems((previous) =>
+          previous.some((item) => item.id === fileId)
+            ? previous.map((item) => (item.id === fileId ? { ...item, isSaving: false } : item))
+            : previous,
+        );
+      }
     }
   };
 
@@ -1129,11 +1130,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply: _onApply, onNotif
 
       if (activePreviewFileId) {
         setFileItems((previous) =>
-          previous.map((item) =>
-            item.id === activePreviewFileId
-              ? { ...item, preview: sanitized, errors: validationErrors, isSaved: true }
-              : item,
-          ),
+          previous.filter((item) => item.id !== activePreviewFileId),
         );
       }
 
@@ -1588,20 +1585,6 @@ export function ImportReservaModal({ isOpen, onClose, onApply: _onApply, onNotif
                           <div className="flex flex-col gap-2">
                             <button
                               type="button"
-                              onClick={() => handleSaveFileReservation(item.id)}
-                              disabled={item.status !== 'success' || item.isSaving}
-                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
-                            >
-                              {(savingFileId === item.id || item.isSaving) && (
-                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                              )}
-                              {savingFileId === item.id || item.isSaving ? 'Salvando…' : 'Salvar reserva'}
-                            </button>
-                            {item.isSaved ? (
-                              <span className="text-xs font-medium text-emerald-600">Reserva salva</span>
-                            ) : null}
-                            <button
-                              type="button"
                               onClick={() => handleExtractFromFile(item.id)}
                               disabled={item.status === 'processing'}
                               className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
@@ -1617,6 +1600,20 @@ export function ImportReservaModal({ isOpen, onClose, onApply: _onApply, onNotif
                             >
                               Ver dados extraídos
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveFileReservation(item.id)}
+                              disabled={item.status !== 'success' || item.isSaving}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {(savingFileId === item.id || item.isSaving) && (
+                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                              )}
+                              {savingFileId === item.id || item.isSaving ? 'Salvando…' : 'Salvar reserva'}
+                            </button>
+                            {item.isSaved ? (
+                              <span className="text-xs font-medium text-emerald-600">Reserva salva</span>
+                            ) : null}
                           </div>
                         </div>
 
