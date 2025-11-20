@@ -24,6 +24,7 @@ export type ReservationRecord = {
   voo_saida?: string | null;
   horario_voo_chegada?: string | null;
   horario_voo_saida?: string | null;
+  regime?: string | null;
   status: string | null;
   codigo_reserva: string | null;
   localizador?: string | null;
