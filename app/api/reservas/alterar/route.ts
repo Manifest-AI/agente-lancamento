@@ -243,6 +243,46 @@ function validateRequiredFields(payload: Record<string, string | null>) {
   return null;
 }
 
+function isActiveReservation(reservation: ReservationRecord) {
+  return sanitizeReservationStatus(reservation.status) !== CANCELLATION_STATUS;
+}
+
+function buildReservationTemplate(reservations: ReservationRecord[]) {
+  const [primaryReservation, ...otherReservations] = [...reservations].sort((current, next) => {
+    return Number(isActiveReservation(next)) - Number(isActiveReservation(current));
+  });
+
+  const template: ReservationRecord = { ...primaryReservation };
+
+  otherReservations.forEach((reservation) => {
+    if (isActiveReservation(reservation) && !isActiveReservation(template)) {
+      template.status = reservation.status;
+    }
+
+    Object.entries(reservation).forEach(([key, value]) => {
+      if (key === 'id' || key === 'created_at' || key === 'status') {
+        return;
+      }
+
+      if (value === null || value === undefined) {
+        return;
+      }
+
+      const stringValue = typeof value === 'string' ? value.trim() : `${value}`;
+      if (!stringValue) {
+        return;
+      }
+
+      const currentValue = (template as Record<string, string | null | undefined>)[key];
+      if (!currentValue || !`${currentValue}`.trim()) {
+        (template as Record<string, string | null | undefined>)[key] = value;
+      }
+    });
+  });
+
+  return template;
+}
+
 export async function POST(request: Request) {
   const token = getAccessToken(request.headers);
   if (!token) {
@@ -355,15 +395,15 @@ export async function POST(request: Request) {
       return buildErrorResponse(400, 'Nome do passageiro é obrigatório para adicionar um novo passageiro.');
     }
 
-    const baseReservation = reservations[0] as ReservationRecord;
-    const { id: _id, created_at: _createdAt, ...restReservation } = baseReservation;
-    const sanitizedStatus = sanitizeReservationStatus(baseReservation.status, (rejectedStatus) => {
+    const templateReservation = buildReservationTemplate(reservations as ReservationRecord[]);
+    const { id: _id, created_at: _createdAt, ...restReservation } = templateReservation;
+    const sanitizedStatus = sanitizeReservationStatus(templateReservation.status, (rejectedStatus) => {
       console.error('[reservas/alterar] Ignorando status inválido ao adicionar passageiros.', {
         numeroReserva,
         rejectedStatus,
       });
     });
-    const basePassengerType = mapPassengerType(baseReservation.tipo_pax) ?? 'A';
+    const basePassengerType = mapPassengerType(templateReservation.tipo_pax) ?? 'A';
     const basePayload = {
       ...restReservation,
       ...updatePayload,
@@ -373,11 +413,17 @@ export async function POST(request: Request) {
       obs: restReservation.obs ?? null,
     } as Record<string, string | null>;
 
-    const enrichedBasePayload = fillMissingRequiredFields(basePayload, reservations);
-    const validationIssues = validateRequiredFields(enrichedBasePayload);
+    const validationIssues = validateRequiredFields(basePayload);
 
     if (validationIssues) {
       return buildErrorResponse(400, validationIssues.message, validationIssues.details);
+    }
+
+    const enrichedBasePayload = fillMissingRequiredFields(basePayload, reservations);
+    const enrichedValidationIssues = validateRequiredFields(enrichedBasePayload);
+
+    if (enrichedValidationIssues) {
+      return buildErrorResponse(400, enrichedValidationIssues.message, enrichedValidationIssues.details);
     }
 
     const insertPayload = addPassengers.map((passenger) => {
