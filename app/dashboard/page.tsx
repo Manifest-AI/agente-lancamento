@@ -118,12 +118,12 @@ export default function DashboardPage() {
             >
               Reservas
             </Link>
-            <button
-              type="button"
-              className="rounded-xl px-3 py-2 text-left transition hover:bg-slate-50 hover:text-slate-900"
+            <Link
+              href="/relatorios"
+              className="rounded-xl px-3 py-2 transition hover:bg-slate-50 hover:text-slate-900"
             >
               Relatórios
-            </button>
+            </Link>
             <button
               type="button"
               className="rounded-xl px-3 py-2 text-left transition hover:bg-slate-50 hover:text-slate-900"
