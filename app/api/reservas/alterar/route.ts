@@ -393,15 +393,28 @@ export async function POST(request: Request) {
     for (let index = 0; index < swapTargets.length; index += 1) {
       const target = swapTargets[index];
       const newPassenger = addPassengers[index];
-      const newName = newPassenger.nome?.trim() as string;
-      const newType = mapPassengerType(newPassenger.tipo);
+      const newName = newPassenger.nome?.trim().replace(/\s+/g, ' ');
+
+      if (!newName) {
+        return buildErrorResponse(400, 'Nome do passageiro é obrigatório para troca.');
+      }
+
+      const normalizedType = mapPassengerType(newPassenger.tipo);
+
+      if (newPassenger.tipo && !normalizedType) {
+        return buildErrorResponse(400, 'Tipo de passageiro inválido para troca.');
+      }
+
       const swapPayload: Record<string, string> = {
         nome_pax: newName,
         passageiro: newName,
       };
 
-      if (newType) {
-        swapPayload.tipo_pax = newType;
+      const targetType = mapPassengerType(target.tipo_pax);
+      const effectiveType = normalizedType ?? targetType;
+
+      if (effectiveType) {
+        swapPayload.tipo_pax = effectiveType;
       }
 
       const { error: swapError } = await adminClient
@@ -416,7 +429,19 @@ export async function POST(request: Request) {
           message: swapError.message,
           details: swapError.details,
         });
-        return buildErrorResponse(500, 'Falha ao trocar passageiro.', { message: swapError.message });
+
+        const swapMessage = swapError.message?.toLowerCase() || '';
+        const isValidationError =
+          swapMessage.includes('tipo_pax') ||
+          swapMessage.includes('nome_pax') ||
+          swapMessage.includes('not-null') ||
+          swapMessage.includes('invalid input value for enum');
+
+        const message = isValidationError
+          ? 'Não foi possível trocar o passageiro: verifique nome e tipo informados.'
+          : 'Falha ao trocar passageiro.';
+
+        return buildErrorResponse(isValidationError ? 400 : 500, message, { message: swapError.message });
       }
     }
 
