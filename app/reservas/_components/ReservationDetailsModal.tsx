@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect } from 'react';
 import type { ReservationRecord } from '@/lib/queries/reservas';
 import { formatDate, formatDateTime, formatTime, getStatusStyle, type StatusVariant } from './reservationUtils';
@@ -55,40 +56,54 @@ export default function ReservationDetailsModal({ reservation, open, onClose }: 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
+        className="w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 id="reservation-details-title" className="text-lg font-semibold text-slate-900">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+          <div className="space-y-1">
+            <h2 id="reservation-details-title" className="text-xl font-semibold text-slate-900">
               Detalhes da reserva {reservation.numero_reserva ? `#${reservation.numero_reserva}` : ''}
             </h2>
-            <p className="text-sm text-slate-600">Visualize todas as informações da reserva selecionada.</p>
+            <p className="text-sm text-slate-600">Informações completas da reserva selecionada.</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
-          >
-            Fechar
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/reservas/${reservation.id}/editar`}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              Editar
+            </Link>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              Fechar
+            </button>
+          </div>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {details.map((detail) => (
-            <div key={detail.label} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{detail.label}</p>
-              {detail.isStatus ? (
-                <span
-                  className={`mt-1 inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle((reservation.status as StatusVariant) ?? 'Pendente')}`}
-                >
-                  {detail.value}
-                </span>
-              ) : (
-                <p className="mt-1 text-sm text-slate-700">{detail.value}</p>
-              )}
-            </div>
-          ))}
+        <div className="max-h-[75vh] overflow-y-auto px-6 py-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            {details.map((detail) => (
+              <div key={detail.label} className="flex flex-col gap-2">
+                <p className="text-sm font-medium text-slate-700">{detail.label}</p>
+                {detail.isStatus ? (
+                  <span
+                    className={`inline-flex min-h-[42px] min-w-[120px] items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold ${getStatusStyle(
+                      (reservation.status as StatusVariant) ?? 'Pendente',
+                    )}`}
+                  >
+                    {detail.value}
+                  </span>
+                ) : (
+                  <div className="min-h-[42px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 shadow-sm">
+                    {detail.value}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

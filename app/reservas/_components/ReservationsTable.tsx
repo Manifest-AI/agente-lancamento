@@ -177,12 +177,6 @@ export default function ReservationsTable({
                 >
                   Ver detalhes
                 </button>
-                <Link
-                  href={`/reservas/${reservation.id}/editar`}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
-                >
-                  Editar
-                </Link>
                 <button
                   type="button"
                   onClick={() => onDelete(reservation.id)}
