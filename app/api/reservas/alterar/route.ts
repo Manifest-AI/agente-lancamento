@@ -442,20 +442,31 @@ export async function POST(request: Request) {
           numeroReserva,
           message: swapError.message,
           details: swapError.details,
+          payload: swapPayload,
+          effectiveType,
+          code: swapError.code,
         });
 
         const swapMessage = swapError.message?.toLowerCase() || '';
+        const isEnumViolation =
+          swapError.code === '22P02' || swapMessage.includes('invalid input value for enum');
+        const isNotNullViolation = swapError.code === '23502' || swapMessage.includes('not-null');
         const isValidationError =
-          swapMessage.includes('tipo_pax') ||
-          swapMessage.includes('nome_pax') ||
-          swapMessage.includes('not-null') ||
-          swapMessage.includes('invalid input value for enum');
+          swapMessage.includes('tipo_pax') || swapMessage.includes('nome_pax') || isEnumViolation || isNotNullViolation;
 
-        const message = isValidationError
-          ? 'Não foi possível trocar o passageiro: verifique nome e tipo informados.'
-          : 'Falha ao trocar passageiro.';
+        const status = isValidationError ? 400 : 500;
+        const message = isEnumViolation
+          ? 'Tipo de passageiro inválido: use A (Adulto), C (Criança) ou I (Bebê).'
+          : isNotNullViolation
+            ? 'Dados obrigatórios ausentes ao trocar passageiro. Confira nome e tipo.'
+            : isValidationError
+              ? 'Não foi possível trocar o passageiro: verifique nome e tipo informados.'
+              : 'Falha ao trocar passageiro.';
 
-        return buildErrorResponse(isValidationError ? 400 : 500, message, { message: swapError.message });
+        return buildErrorResponse(status, message, {
+          message: swapError.message,
+          code: swapError.code,
+        });
       }
     }
 
