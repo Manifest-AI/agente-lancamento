@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -55,9 +55,11 @@ export default function RoamingListPageContent() {
   const initialDate = buildInitialDate();
   const [startDateInput, setStartDateInput] = useState(initialDate);
   const [endDateInput, setEndDateInput] = useState(initialDate);
-  const [filters, setFilters] = useState<Pick<RoamingListParams, 'startDate' | 'endDate'>>({
+  const [reportTypeInput, setReportTypeInput] = useState<RoamingListParams['reportType']>('in');
+  const [filters, setFilters] = useState<Pick<RoamingListParams, 'startDate' | 'endDate' | 'reportType'>>({
     startDate: initialDate,
     endDate: initialDate,
+    reportType: 'in',
   });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -80,6 +82,7 @@ export default function RoamingListPageContent() {
         const result = await fetchRoamingList({
           startDate: filters.startDate,
           endDate: filters.endDate,
+          reportType: filters.reportType,
           page,
           pageSize: ROAMING_LIST_PAGE_SIZE,
           userId: user.id,
@@ -119,7 +122,7 @@ export default function RoamingListPageContent() {
     }
 
     setPage(1);
-    setFilters({ startDate: startDateInput, endDate: endDateInput });
+    setFilters({ startDate: startDateInput, endDate: endDateInput, reportType: reportTypeInput ?? 'in' });
   };
 
   const handlePageChange = (direction: 'next' | 'prev') => {
@@ -131,16 +134,25 @@ export default function RoamingListPageContent() {
     });
   };
 
+  const activeReportType = filters.reportType ?? 'in';
+  const reportTypeLabel =
+    activeReportType === 'out' ? 'Relatório de OUT (saídas)' : 'Relatório de IN (chegadas)';
+  const reportTypeHint =
+    activeReportType === 'out'
+      ? 'Os resultados são ordenados por operadora e horário de saída.'
+      : 'Os resultados são ordenados por operadora e horário de chegada.';
+  const periodLabel = `${formatDate(filters.startDate)} até ${formatDate(filters.endDate)}`;
+  const columnCount = 9;
+  const totalLabel = activeReportType === 'out' ? 'saída(s)' : 'chegada(s)';
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">Roaming List – Chegada de Passageiros</h1>
-          <p className="text-sm text-slate-600">
-            Visualize as chegadas de passageiros em um determinado período, organizadas por operadora.
-          </p>
+          <p className="text-sm text-slate-600">Visualize as chegadas e saídas em um determinado período.</p>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center print:hidden">
           <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
@@ -153,10 +165,17 @@ export default function RoamingListPageContent() {
           >
             Ver reservas
           </Link>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+          >
+            Imprimir / PDF
+          </button>
         </div>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1">
@@ -181,12 +200,37 @@ export default function RoamingListPageContent() {
                 aria-label="Data final"
               />
             </label>
+            <fieldset className="flex flex-col gap-2 sm:col-span-2 lg:col-span-2">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tipo de relatório</legend>
+              <div className="flex flex-wrap gap-3">
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="radio"
+                    name="report-type"
+                    value="in"
+                    checked={reportTypeInput === 'in'}
+                    onChange={() => setReportTypeInput('in')}
+                    className="h-4 w-4 border border-slate-300 text-blue-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  Relatório de IN (chegadas)
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="radio"
+                    name="report-type"
+                    value="out"
+                    checked={reportTypeInput === 'out'}
+                    onChange={() => setReportTypeInput('out')}
+                    className="h-4 w-4 border border-slate-300 text-blue-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  Relatório de OUT (saídas)
+                </label>
+              </div>
+            </fieldset>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-400">
-              Selecione um intervalo para listar as chegadas. Os resultados são ordenados por operadora e horário de chegada.
-            </p>
+            <p className="text-xs text-slate-400">Selecione um intervalo e o tipo de relatório para listar as reservas.</p>
             <button
               type="submit"
               className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
@@ -197,12 +241,22 @@ export default function RoamingListPageContent() {
         </form>
       </section>
 
-      {error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
-      ) : null}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 text-sm text-slate-700 print:mb-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700 print:bg-slate-100 print:text-slate-800">
+              {reportTypeLabel}
+            </span>
+            <span className="text-xs text-slate-500">Período: {periodLabel}</span>
+          </div>
+          <p className="text-xs text-slate-500">{reportTypeHint}</p>
+        </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        {error ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+        ) : null}
+
+        <div className="overflow-x-auto print:overflow-visible">
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
@@ -220,53 +274,67 @@ export default function RoamingListPageContent() {
             <tbody className="divide-y divide-slate-100 bg-white">
               {isLoading ? (
                 <tr>
-                  <td className="px-4 py-6 text-center text-sm text-slate-500" colSpan={9}>
-                    Carregando chegadas...
+                  <td className="px-4 py-6 text-center text-sm text-slate-500" colSpan={columnCount}>
+                    Carregando relatório...
                   </td>
                 </tr>
               ) : items.length > 0 ? (
                 items.map((reservation, index) => {
                   const sequence = (page - 1) * ROAMING_LIST_PAGE_SIZE + index + 1;
+                  const nextReservation = items[index + 1];
+                  const currentReservationNumber = reservation.numero_reserva?.trim();
+                  const nextReservationNumber = nextReservation?.numero_reserva?.trim();
+                  const isLastOfReservation = currentReservationNumber !== nextReservationNumber;
+
                   return (
-                    <tr key={reservation.id} className="text-sm text-slate-700">
-                      <td className="max-w-[180px] px-4 py-3">
-                        <span className="block truncate" title={reservation.operadora ?? '-'}>
-                          {reservation.operadora ?? '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{sequence}</td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {buildFlightInfo(reservation.data_chegada, reservation.horario_voo_chegada, reservation.voo_chegada)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {buildFlightInfo(reservation.data_saida, reservation.horario_voo_saida, reservation.voo_saida)}
-                      </td>
-                      <td className="max-w-[180px] px-4 py-3">
-                        <span className="block truncate" title={reservation.hotel ?? '-'}>
-                          {reservation.hotel ?? '-'}
-                        </span>
-                      </td>
-                      <td className="max-w-[260px] px-4 py-3">
-                        <span className="block truncate" title={formatReservationPassenger(reservation)}>
-                          {formatReservationPassenger(reservation)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{reservation.ident ?? '-'}</td>
-                      <td className="px-4 py-3 text-slate-700">{reservation.regime ?? '–'}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle((reservation.status as StatusVariant) ?? 'Pendente')}`}
-                        >
-                          {reservation.status ?? 'Sem status'}
-                        </span>
-                      </td>
-                    </tr>
+                    <Fragment key={`${reservation.id}-${sequence}`}>
+                      <tr className="text-sm text-slate-700">
+                        <td className="max-w-[180px] px-4 py-3">
+                          <span className="block truncate" title={reservation.operadora ?? '-'}>
+                            {reservation.operadora ?? '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{sequence}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {buildFlightInfo(reservation.data_chegada, reservation.horario_voo_chegada, reservation.voo_chegada)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {buildFlightInfo(reservation.data_saida, reservation.horario_voo_saida, reservation.voo_saida)}
+                        </td>
+                        <td className="max-w-[180px] px-4 py-3">
+                          <span className="block truncate" title={reservation.hotel ?? '-'}>
+                            {reservation.hotel ?? '-'}
+                          </span>
+                        </td>
+                        <td className="max-w-[260px] px-4 py-3">
+                          <span className="block truncate" title={formatReservationPassenger(reservation)}>
+                            {formatReservationPassenger(reservation)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">{reservation.ident ?? '-'}</td>
+                        <td className="px-4 py-3 text-slate-700">{reservation.regime ?? '–'}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle((reservation.status as StatusVariant) ?? 'Pendente')}`}
+                          >
+                            {reservation.status ?? 'Sem status'}
+                          </span>
+                        </td>
+                      </tr>
+                      {isLastOfReservation ? (
+                        <tr aria-hidden className="print:table-row">
+                          <td colSpan={columnCount} className="p-0">
+                            <div className="h-2 w-full border-t-2 border-blue-500 bg-blue-50 font-bold text-blue-600 print:border-slate-500 print:bg-slate-100" />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   );
                 })
               ) : (
                 <tr>
-                  <td className="px-4 py-6 text-center text-sm text-slate-500" colSpan={9}>
-                    Nenhuma chegada encontrada para o período selecionado.
+                  <td className="px-4 py-6 text-center text-sm text-slate-500" colSpan={columnCount}>
+                    Nenhum resultado encontrado para o período selecionado.
                   </td>
                 </tr>
               )}
@@ -274,10 +342,10 @@ export default function RoamingListPageContent() {
           </table>
         </div>
 
-        <footer className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+        <footer className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between print:hidden">
           <span>
             Exibindo {(page - 1) * ROAMING_LIST_PAGE_SIZE + (items.length ? 1 : 0)} -
-            {(page - 1) * ROAMING_LIST_PAGE_SIZE + items.length} de {total} chegada(s)
+            {(page - 1) * ROAMING_LIST_PAGE_SIZE + items.length} de {total} {totalLabel}
           </span>
           <div className="flex items-center gap-3">
             <button
