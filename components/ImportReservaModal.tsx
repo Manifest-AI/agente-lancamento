@@ -37,6 +37,7 @@ export type ImportReservaModalProps = {
 };
 
 const MAX_FILE_SIZE_MB = 10;
+const MAX_FILES = 10;
 
 async function readFileAsFormData(file: File) {
   const formData = new FormData();
@@ -51,6 +52,21 @@ type ExtractorErrorDetails = {
   hint?: string;
   requestId?: string;
   status?: number;
+};
+
+type FileExtractionState = {
+  id: string;
+  file: File;
+  previewUrl: string | null;
+  status: 'pending' | 'processing' | 'success' | 'error';
+  errorMessage?: string | null;
+  errorDetails?: ExtractorErrorDetails | null;
+  extractedReservation?: ExtractedReservation | null;
+  alterationResult?: ExtractedAlteration | null;
+  cancellationResult?: ExtractedCancellation | null;
+  preview?: ReservaPreviewDraft;
+  errors?: ReservaPreviewErrors;
+  modelName?: string | null;
 };
 
 function toExtractorErrorDetails(value: unknown): ExtractorErrorDetails | null {
@@ -97,8 +113,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
   const { user, session } = useAuth();
   const [activeTab, setActiveTab] = useState<'text' | 'image'>('text');
   const [textInput, setTextInput] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
+  const [fileItems, setFileItems] = useState<FileExtractionState[]>([]);
+  const [activePreviewFileId, setActivePreviewFileId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<ExtractorErrorDetails | null>(null);
@@ -167,22 +183,6 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
       setClipboardSupport('unsupported');
     }
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!selectedFile) {
-      if (filePreviewUrl) {
-        URL.revokeObjectURL(filePreviewUrl);
-      }
-      setFilePreviewUrl(null);
-      return;
-    }
-
-    const previewUrl = URL.createObjectURL(selectedFile);
-    setFilePreviewUrl(previewUrl);
-    return () => {
-      URL.revokeObjectURL(previewUrl);
-    };
-  }, [selectedFile]);
 
   useEffect(() => {
     if (!isOpen || mode !== 'adjustment') {
@@ -276,15 +276,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     };
   }, [cancellationResult, isOpen, mode, user?.id]);
 
-  const resetState = useCallback(() => {
-    setActiveTab('text');
-    setTextInput('');
-    setSelectedFile(null);
-    setFilePreviewUrl(null);
-    setIsProcessing(false);
-    setErrorMessage(null);
-    setErrorDetails(null);
-    setShowErrorDetails(false);
+  const clearPreviewState = useCallback(() => {
     setPreview(createEmptyPreview());
     setErrors(createEmptyPreviewErrors(1));
     setExtractedData(null);
@@ -296,9 +288,28 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     setCancellationLookupState('idle');
     setIsApplyingAction(false);
     setModelName(null);
-    setClipboardSupport('unknown');
+    setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
     errorDetailsRef.current = null;
   }, []);
+
+  const resetState = useCallback(() => {
+    setActiveTab('text');
+    setTextInput('');
+    setIsProcessing(false);
+    clearPreviewState();
+    setActivePreviewFileId(null);
+    setClipboardSupport('unknown');
+    setFileItems((items) => {
+      items.forEach((item) => {
+        if (item.previewUrl) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      });
+      return [];
+    });
+  }, [clearPreviewState]);
 
   const handleClose = useCallback(() => {
     resetState();
@@ -313,51 +324,99 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     errorDetailsRef.current = null;
   };
 
-  const handleFileSelect = (file: File | null) => {
-    if (!file) {
-      setSelectedFile(null);
-      errorDetailsRef.current = null;
+  const createFileItem = (file: File): FileExtractionState => ({
+    id:
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    file,
+    previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+    status: 'pending',
+    errorMessage: null,
+    errorDetails: null,
+    extractedReservation: null,
+    alterationResult: null,
+    cancellationResult: null,
+    preview: undefined,
+    errors: undefined,
+    modelName: null,
+  });
+
+  const handleFilesAdd = (files: FileList | File[]) => {
+    const incoming = Array.from(files ?? []);
+    if (!incoming.length) {
       return;
     }
 
-    if (!acceptedTypes.includes(file.type)) {
-      setErrorMessage('Formato não suportado (use PNG, JPG ou PDF).');
+    const availableSlots = MAX_FILES - fileItems.length;
+    if (availableSlots <= 0) {
+      onNotify?.({ type: 'error', message: `Limite de ${MAX_FILES} arquivos atingido.` });
+      return;
+    }
+
+    const acceptedItems: FileExtractionState[] = [];
+    let rejected = false;
+
+    for (const file of incoming.slice(0, availableSlots)) {
+      if (!acceptedTypes.includes(file.type)) {
+        rejected = true;
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        rejected = true;
+        continue;
+      }
+      acceptedItems.push(createFileItem(file));
+    }
+
+    if (incoming.length > availableSlots) {
+      onNotify?.({ type: 'error', message: `Apenas ${MAX_FILES} arquivos podem ser enviados por vez.` });
+    }
+
+    if (rejected) {
+      setErrorMessage('Alguns arquivos foram ignorados por formato ou tamanho inválido.');
       setErrorDetails(null);
       setShowErrorDetails(false);
-      setSelectedFile(null);
-      errorDetailsRef.current = null;
-      return;
-    }
-
-    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setErrorMessage('Arquivo maior que 10 MB.');
+    } else {
+      setErrorMessage(null);
       setErrorDetails(null);
       setShowErrorDetails(false);
-      setSelectedFile(null);
-      errorDetailsRef.current = null;
-      return;
     }
 
-    setErrorMessage(null);
-    setErrorDetails(null);
-    setShowErrorDetails(false);
-    setSelectedFile(file);
-    errorDetailsRef.current = null;
+    if (acceptedItems.length) {
+      setFileItems((previous) => [...previous, ...acceptedItems]);
+    }
   };
 
   const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    const file = event.dataTransfer.files?.[0];
-    if (file) {
-      handleFileSelect(file);
+    const files = event.dataTransfer.files;
+    if (files && files.length) {
+      handleFilesAdd(files);
     }
   };
 
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      handleFileSelect(file);
+    if (event.target.files?.length) {
+      handleFilesAdd(event.target.files);
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveFile = (fileId: string) => {
+    setFileItems((previous) => {
+      const next = previous.filter((item) => item.id !== fileId);
+      const removed = previous.find((item) => item.id === fileId);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return next;
+    });
+
+    if (activePreviewFileId === fileId) {
+      clearPreviewState();
+      setActivePreviewFileId(null);
     }
   };
 
@@ -559,7 +618,36 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
   );
 
   const runExtraction = useCallback(
-    async (formData: FormData) => {
+    async (formData: FormData, options?: { fileId?: string }) => {
+      const targetFileId = options?.fileId ?? null;
+      if (targetFileId) {
+        setFileItems((previous) =>
+          previous.map((item) =>
+            item.id === targetFileId
+              ? { ...item, status: 'processing', errorMessage: null, errorDetails: null }
+              : item,
+          ),
+        );
+      }
+      const updateFileState = (
+        status: FileExtractionState['status'],
+        extra?: Partial<FileExtractionState>,
+      ) => {
+        if (!targetFileId) {
+          return;
+        }
+        setFileItems((previous) =>
+          previous.map((item) =>
+            item.id === targetFileId
+              ? {
+                  ...item,
+                  status,
+                  ...extra,
+                }
+              : item,
+          ),
+        );
+      };
       if (mode === 'adjustment') {
         setIsProcessing(true);
         setErrorMessage(null);
@@ -590,6 +678,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
             setErrorMessage('Resposta inválida do servidor.');
             setErrorDetails(null);
             setShowErrorDetails(false);
+            updateFileState('error', { errorMessage: 'Resposta inválida do servidor.' });
             return;
           }
 
@@ -600,15 +689,21 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
             setErrorMessage(message);
             setErrorDetails(null);
             setShowErrorDetails(false);
+            updateFileState('error', { errorMessage: message });
             return;
           }
 
           await runTextIngestion(payload.conteudo, { manageProcessingState: false });
+          if (targetFileId) {
+            setActivePreviewFileId(targetFileId);
+            updateFileState('success', { modelName: payload?.model ?? null });
+          }
         } catch (error) {
           console.error('Erro ao executar OCR de texto', error);
           setErrorMessage('Falha ao processar o arquivo. Tente novamente.');
           setErrorDetails(null);
           setShowErrorDetails(false);
+          updateFileState('error', { errorMessage: 'Falha ao processar o arquivo. Tente novamente.' });
         } finally {
           setIsProcessing(false);
         }
@@ -651,6 +746,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
           setShowErrorDetails(false);
           setExtractedData(null);
           setModelName(null);
+          updateFileState('error', { errorMessage: userMessage, errorDetails: details });
           return;
         }
 
@@ -676,6 +772,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
           setShowErrorDetails(false);
           setExtractedData(null);
           setModelName(null);
+          updateFileState('error', { errorMessage: userMessage, errorDetails: details });
           return;
         }
 
@@ -686,6 +783,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
           setShowErrorDetails(false);
           setExtractedData(null);
           setModelName(null);
+          updateFileState('error', { errorMessage: 'A IA não retornou dados válidos.' });
           return;
         }
 
@@ -698,6 +796,15 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
         setModelName(parsed?.model ?? null);
         setErrorDetails(null);
         setShowErrorDetails(false);
+        updateFileState('success', {
+          extractedReservation: normalizedData,
+          preview: nextPreview,
+          errors: nextErrors,
+          modelName: parsed?.model ?? null,
+        });
+        if (targetFileId) {
+          setActivePreviewFileId(targetFileId);
+        }
 
         if (hasPreviewErrors(nextErrors)) {
           onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
@@ -716,6 +823,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
           setErrorMessage(userMessage);
           setErrorDetails(details);
           setShowErrorDetails(false);
+          updateFileState('error', { errorMessage: userMessage, errorDetails: details });
         } else {
           const details: ExtractorErrorDetails = {
             code: 'network_error',
@@ -725,6 +833,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
           setErrorMessage(userMessage);
           setErrorDetails(details);
           setShowErrorDetails(false);
+          updateFileState('error', { errorMessage: userMessage, errorDetails: details });
         }
         setExtractedData(null);
         setModelName(null);
@@ -750,35 +859,78 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     await runTextIngestion(trimmed);
   };
 
-  const handleExtractFromImage = async () => {
-    if (!selectedFile) {
-      setErrorMessage('Selecione um arquivo de imagem ou PDF.');
-      setErrorDetails(null);
-      setShowErrorDetails(false);
-      errorDetailsRef.current = null;
+  const resetFileExtraction = (fileId: string) => {
+    setFileItems((previous) =>
+      previous.map((item) =>
+        item.id === fileId
+          ? {
+              ...item,
+              status: 'pending',
+              errorMessage: null,
+              errorDetails: null,
+              extractedReservation: null,
+              alterationResult: null,
+              cancellationResult: null,
+              preview: undefined,
+              errors: undefined,
+              modelName: null,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const handleExtractFromFile = async (fileId: string) => {
+    const fileEntry = fileItems.find((item) => item.id === fileId);
+    if (!fileEntry) {
       return;
     }
 
-    const formData = await readFileAsFormData(selectedFile);
-    await runExtraction(formData);
+    const formData = await readFileAsFormData(fileEntry.file);
+    await runExtraction(formData, { fileId });
   };
 
-  const handleRetry = () => {
-    setPreview(createEmptyPreview());
-    setErrors(createEmptyPreviewErrors(1));
-    setExtractedData(null);
-    setAlterationResult(null);
-    setCancellationResult(null);
-    setAlterationMatches([]);
-    setCancellationMatches([]);
-    setAlterationLookupState('idle');
-    setCancellationLookupState('idle');
-    setIsApplyingAction(false);
-    setErrorMessage(null);
-    setErrorDetails(null);
-    setShowErrorDetails(false);
-    setModelName(null);
-    errorDetailsRef.current = null;
+  const handleOpenPreview = (fileId: string) => {
+    const fileEntry = fileItems.find((item) => item.id === fileId);
+    if (!fileEntry) {
+      return;
+    }
+
+    clearPreviewState();
+    setActivePreviewFileId(fileId);
+    setModelName(fileEntry.modelName ?? null);
+    setErrorMessage(fileEntry.errorMessage ?? null);
+    setErrorDetails(fileEntry.errorDetails ?? null);
+
+    if (mode === 'adjustment') {
+      setAlterationResult(fileEntry.alterationResult ?? null);
+      setCancellationResult(fileEntry.cancellationResult ?? null);
+    } else if (fileEntry.preview && fileEntry.errors && fileEntry.extractedReservation) {
+      setPreview(fileEntry.preview);
+      setErrors(fileEntry.errors);
+      setExtractedData(fileEntry.extractedReservation);
+    }
+  };
+
+  const handleRetry = (fileId?: string | null) => {
+    const target = fileId ?? activePreviewFileId;
+    clearPreviewState();
+    setActivePreviewFileId(target ?? null);
+    setIsProcessing(false);
+    if (target) {
+      resetFileExtraction(target);
+    }
+  };
+
+  const handleDiscard = () => {
+    if (activePreviewFileId) {
+      resetFileExtraction(activePreviewFileId);
+      clearPreviewState();
+      setActivePreviewFileId(null);
+      return;
+    }
+
+    handleClose();
   };
 
   const handleFieldChange = (field: keyof Omit<ReservaPreviewDraft, 'passageiros'>, value: string) => {
@@ -966,11 +1118,6 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     [handleClose, onNotify, session?.access_token],
   );
 
-  const hasPreview = useMemo(
-    () => Boolean(filePreviewUrl && selectedFile && selectedFile.type.startsWith('image/')),
-    [filePreviewUrl, selectedFile],
-  );
-  const isPdf = selectedFile?.type === 'application/pdf';
   const canUseClipboard = clipboardSupport === 'supported';
 
   const handleCopyErrorDetails = useCallback(async () => {
@@ -1196,7 +1343,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
             </div>
           )}
 
-          {!hasResult && activeTab === 'image' && (
+          {activeTab === 'image' && (
             <div className="space-y-4">
               <label className="text-sm font-medium text-slate-700">Faça upload de uma imagem ou PDF</label>
               <label
@@ -1221,50 +1368,105 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
                   name="import-file"
                   type="file"
                   accept={acceptedTypes.join(',')}
+                  multiple
                   className="sr-only"
                   onChange={handleFileInputChange}
                 />
               </label>
 
-              {selectedFile && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-medium text-slate-800">{selectedFile.name}</p>
-                      <p className="text-xs text-slate-500">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleFileSelect(null)}
-                      className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
-                    >
-                      Remover arquivo
-                    </button>
-                  </div>
+              {fileItems.length > 0 ? (
+                <div className="space-y-3">
+                  {fileItems.map((item, index) => {
+                    const isPdfFile = item.file.type === 'application/pdf';
+                    const statusLabel =
+                      item.status === 'processing'
+                        ? 'Processando...'
+                        : item.status === 'success'
+                          ? 'Extração concluída'
+                          : item.status === 'error'
+                            ? 'Erro na extração'
+                            : 'Aguardando OCR';
+                    const statusTone =
+                      item.status === 'success'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : item.status === 'error'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200'
+                          : item.status === 'processing'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-slate-100 text-slate-700 border-slate-200';
 
-                  {hasPreview && filePreviewUrl && (
-                    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-                      <img src={filePreviewUrl} alt="Pré-visualização do arquivo" className="h-48 w-full bg-slate-100 object-contain" />
-                    </div>
-                  )}
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-slate-800">Reserva {index + 1}</p>
+                              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+                            <p className="break-words text-sm text-slate-800">{item.file.name}</p>
+                            <p className="text-xs text-slate-500">{(item.file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(item.id)}
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+                          >
+                            Remover
+                          </button>
+                        </div>
 
-                  {isPdf && (
-                    <p className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
-                      Pré-visualização indisponível para PDF. A extração utilizará a primeira página do arquivo.
-                    </p>
-                  )}
+                        <div className="mt-3 grid gap-4 sm:grid-cols-3 sm:items-center">
+                          <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:col-span-2">
+                            {item.previewUrl && !isPdfFile ? (
+                              <img
+                                src={item.previewUrl}
+                                alt={`Pré-visualização de ${item.file.name}`}
+                                className="h-40 w-full object-contain"
+                              />
+                            ) : (
+                              <div className="flex h-40 items-center justify-center gap-2 text-slate-500">
+                                <FileText className="h-5 w-5" aria-hidden="true" />
+                                <span className="text-xs">Pré-visualização indisponível para PDF</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleExtractFromFile(item.id)}
+                              disabled={item.status === 'processing'}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                              {item.status === 'processing' ? 'Processando…' : 'Executar OCR'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPreview(item.id)}
+                              disabled={item.status !== 'success'}
+                              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Ver dados extraídos
+                            </button>
+                          </div>
+                        </div>
+
+                        {item.errorMessage ? (
+                          <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{item.errorMessage}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
+              ) : (
+                <p className="text-sm text-slate-500">Nenhum arquivo selecionado.</p>
               )}
-
-              <button
-                type="button"
-                onClick={handleExtractFromImage}
-                disabled={isProcessing || !selectedFile}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {isProcessing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                {isProcessing ? 'Processando…' : 'Executar OCR'}
-              </button>
             </div>
           )}
 
@@ -1277,8 +1479,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
               onPassengerAdd={handlePassengerAdd}
               onPassengerRemove={handlePassengerRemove}
               onApply={handleApplyToForm}
-              onRetry={handleRetry}
-              onDiscard={handleClose}
+              onRetry={() => handleRetry(activePreviewFileId)}
+              onDiscard={handleDiscard}
               isApplying={isProcessing}
             />
           ) : null}
@@ -1289,8 +1491,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
               reservations={alterationMatches}
               lookupStatus={alterationLookupState}
               onApply={handleApplyAlteration}
-              onRetry={handleRetry}
-              onDiscard={handleClose}
+              onRetry={() => handleRetry(activePreviewFileId)}
+              onDiscard={handleDiscard}
               isApplying={isApplyingAction}
             />
           ) : null}
@@ -1301,8 +1503,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
               reservations={cancellationMatches}
               lookupStatus={cancellationLookupState}
               onApply={handleApplyCancellation}
-              onRetry={handleRetry}
-              onDiscard={handleClose}
+              onRetry={() => handleRetry(activePreviewFileId)}
+              onDiscard={handleDiscard}
               isApplying={isApplyingAction}
             />
           ) : null}
