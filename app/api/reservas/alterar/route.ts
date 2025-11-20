@@ -7,6 +7,7 @@ import type {
   ReservationFieldUpdate,
   ReservationPassengerChange,
 } from '@/types/reservation-adjustments';
+import { applyPassengerSwaps, mapPassengerType, normalizeName, preparePassengerSwaps } from './swaps';
 
 function getAccessToken(headers: Headers) {
   const authorization = headers.get('Authorization');
@@ -78,87 +79,11 @@ function mapFieldUpdate(update: ReservationFieldUpdate) {
   }
 }
 
-function mapPassengerType(tipo?: string | null) {
-  if (!tipo) {
-    return null;
-  }
-
-  const normalized = tipo.trim().toUpperCase();
-  if (normalized === 'ADT' || normalized === 'A') {
-    return 'A';
-  }
-  if (normalized === 'CHD' || normalized === 'C') {
-    return 'C';
-  }
-  if (normalized === 'INF' || normalized === 'I') {
-    return 'I';
-  }
-  return null;
-}
-
-function normalizeName(value?: string | null) {
-  if (!value) {
-    return null;
-  }
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
-
 type AlterationStats = {
   updated: number;
   added: number;
   removed: number;
 };
-
-function buildSuccessResponse(stats: AlterationStats) {
-  return NextResponse.json(
-    {
-      ok: true,
-      stats,
-    },
-    { status: 200 },
-  );
-}
-
-function buildErrorResponse(status: number, message: string, details?: Record<string, unknown>) {
-  return NextResponse.json(
-    {
-      ok: false,
-      error: message,
-      ...(details ? { details } : {}),
-    },
-    { status },
-  );
-}
-
-function resolveFieldUpdates(updates?: ReservationFieldUpdate[]) {
-  if (!updates) {
-    return [];
-  }
-
-  return updates.map(mapFieldUpdate).filter((item) => Boolean(item.field));
-}
-
-function expandPassengers(changes?: ReservationPassengerChange[]) {
-  if (!changes) {
-    return [];
-  }
-
-  const expanded: ReservationPassengerChange[] = [];
-  changes.forEach((change) => {
-    const quantity = Math.max(1, change.quantidade ?? 1);
-    for (let index = 0; index < quantity; index += 1) {
-      expanded.push({
-        nome: change.nome?.trim() || null,
-        tipo: mapPassengerType(change.tipo),
-        quantidade: 1,
-      });
-    }
-  });
-  return expanded;
-}
 
 function canUsePassengerSwap(addPassengers: ReservationPassengerChange[], removePassengers: ReservationPassengerChange[]) {
   if (addPassengers.length === 0 || removePassengers.length === 0) {
@@ -369,83 +294,24 @@ export async function POST(request: Request) {
   }
 
   if (shouldSwapPassengers) {
-    const usedIds = new Set<string>();
-    const swapTargets: ReservationRecord[] = [];
+    const swapPreparation = preparePassengerSwaps(reservations, removePassengers, addPassengers);
 
-    for (const change of removePassengers) {
-      const normalizedName = normalizeName(change.nome);
-      if (!normalizedName) {
-        continue;
-      }
-
-      const targetReservation = reservations.find((reservation) => {
-        return !usedIds.has(reservation.id) && normalizeName(reservation.nome_pax) === normalizedName;
-      });
-
-      if (!targetReservation) {
-        return buildErrorResponse(404, 'Passageiro para substituição não encontrado.');
-      }
-
-      usedIds.add(targetReservation.id);
-      swapTargets.push(targetReservation);
+    if ('error' in swapPreparation) {
+      return buildErrorResponse(swapPreparation.error.status, swapPreparation.error.message);
     }
 
-    for (let index = 0; index < swapTargets.length; index += 1) {
-      const target = swapTargets[index];
-      const newPassenger = addPassengers[index];
-      const newName = newPassenger.nome?.trim().replace(/\s+/g, ' ');
+    const swapResult = await applyPassengerSwaps(
+      swapPreparation.pairs,
+      (target, payload) =>
+        adminClient.from('reservas').update(payload).eq('id', target.id).eq('user_id', userId),
+      numeroReserva,
+    );
 
-      if (!newName) {
-        return buildErrorResponse(400, 'Nome do passageiro é obrigatório para troca.');
-      }
-
-      const normalizedType = mapPassengerType(newPassenger.tipo);
-
-      if (newPassenger.tipo && !normalizedType) {
-        return buildErrorResponse(400, 'Tipo de passageiro inválido para troca.');
-      }
-
-      const swapPayload: Record<string, string> = {
-        nome_pax: newName,
-        passageiro: newName,
-      };
-
-      const targetType = mapPassengerType(target.tipo_pax);
-      const effectiveType = normalizedType ?? targetType;
-
-      if (effectiveType) {
-        swapPayload.tipo_pax = effectiveType;
-      }
-
-      const { error: swapError } = await adminClient
-        .from('reservas')
-        .update(swapPayload)
-        .eq('id', target.id)
-        .eq('user_id', userId);
-
-      if (swapError) {
-        console.error('[reservas/alterar] Falha ao trocar passageiro.', {
-          numeroReserva,
-          message: swapError.message,
-          details: swapError.details,
-        });
-
-        const swapMessage = swapError.message?.toLowerCase() || '';
-        const isValidationError =
-          swapMessage.includes('tipo_pax') ||
-          swapMessage.includes('nome_pax') ||
-          swapMessage.includes('not-null') ||
-          swapMessage.includes('invalid input value for enum');
-
-        const message = isValidationError
-          ? 'Não foi possível trocar o passageiro: verifique nome e tipo informados.'
-          : 'Falha ao trocar passageiro.';
-
-        return buildErrorResponse(isValidationError ? 400 : 500, message, { message: swapError.message });
-      }
+    if ('error' in swapResult) {
+      return buildErrorResponse(swapResult.error.status, swapResult.error.message, swapResult.error.details);
     }
 
-    stats.updated += swapTargets.length;
+    stats.updated += swapPreparation.pairs.length;
 
     return buildSuccessResponse(stats);
   }
