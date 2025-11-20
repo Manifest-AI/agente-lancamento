@@ -131,6 +131,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
   const [isApplyingAction, setIsApplyingAction] = useState(false);
   const [modelName, setModelName] = useState<string | null>(null);
   const [clipboardSupport, setClipboardSupport] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [previewOrigin, setPreviewOrigin] = useState<'text' | 'file' | null>(null);
   const errorDetailsRef = useRef<HTMLPreElement | null>(null);
 
   const hasResult = useMemo(() => {
@@ -291,6 +293,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     setErrorMessage(null);
     setErrorDetails(null);
     setShowErrorDetails(false);
+    setIsPreviewModalOpen(false);
+    setPreviewOrigin(null);
     errorDetailsRef.current = null;
   }, []);
 
@@ -301,6 +305,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     clearPreviewState();
     setActivePreviewFileId(null);
     setClipboardSupport('unknown');
+    setIsPreviewModalOpen(false);
+    setPreviewOrigin(null);
     setFileItems((items) => {
       items.forEach((item) => {
         if (item.previewUrl) {
@@ -417,6 +423,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     if (activePreviewFileId === fileId) {
       clearPreviewState();
       setActivePreviewFileId(null);
+      setIsPreviewModalOpen(false);
+      setPreviewOrigin(null);
     }
   };
 
@@ -578,6 +586,9 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
         setCancellationResult(null);
         setErrorDetails(null);
         setShowErrorDetails(false);
+        setPreviewOrigin('text');
+        setActivePreviewFileId(null);
+        setIsPreviewModalOpen(false);
 
         if (hasPreviewErrors(nextErrors)) {
           onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
@@ -796,15 +807,13 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
         setModelName(parsed?.model ?? null);
         setErrorDetails(null);
         setShowErrorDetails(false);
+        setPreviewOrigin('file');
         updateFileState('success', {
           extractedReservation: normalizedData,
           preview: nextPreview,
           errors: nextErrors,
           modelName: parsed?.model ?? null,
         });
-        if (targetFileId) {
-          setActivePreviewFileId(targetFileId);
-        }
 
         if (hasPreviewErrors(nextErrors)) {
           onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de aplicar.' });
@@ -901,6 +910,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     setModelName(fileEntry.modelName ?? null);
     setErrorMessage(fileEntry.errorMessage ?? null);
     setErrorDetails(fileEntry.errorDetails ?? null);
+    setPreviewOrigin('file');
+    setIsPreviewModalOpen(true);
 
     if (mode === 'adjustment') {
       setAlterationResult(fileEntry.alterationResult ?? null);
@@ -927,6 +938,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
       resetFileExtraction(activePreviewFileId);
       clearPreviewState();
       setActivePreviewFileId(null);
+      setIsPreviewModalOpen(false);
+      setPreviewOrigin(null);
       return;
     }
 
@@ -1168,38 +1181,57 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     }
   }, [onNotify]);
 
+  const activeFileIndex = useMemo(
+    () => fileItems.findIndex((item) => item.id === activePreviewFileId),
+    [activePreviewFileId, fileItems],
+  );
+
+  const activeReservationLabel = useMemo(() => {
+    if (activeFileIndex === -1) {
+      return null;
+    }
+
+    return `Reserva ${activeFileIndex + 1}`;
+  }, [activeFileIndex]);
+
+  const shouldRenderInlinePreview = mode === 'initial' && hasResult && previewOrigin === 'text';
+  const shouldRenderInlineAdjustment =
+    mode === 'adjustment' && hasResult && !isPreviewModalOpen && previewOrigin !== 'file';
+  const shouldRenderDetailModal = isPreviewModalOpen && Boolean(activePreviewFileId) && hasResult;
+
   if (!isOpen) {
     return null;
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
-      <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex max-h-[calc(100vh-2rem)] flex-col md:max-h-[min(78vh,860px)]">
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {mode === 'adjustment' ? 'Alterações e cancelamentos' : 'Importar reserva'}
-                </h2>
-                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm">
+        <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+          <div className="flex max-h-[calc(100vh-2rem)] flex-col md:max-h-[min(78vh,860px)]">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    {mode === 'adjustment' ? 'Alterações e cancelamentos' : 'Importar reserva'}
+                  </h2>
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Beta</span>
+                </div>
+                {modelName ? (
+                  <span className="text-xs font-medium uppercase text-slate-400">Modelo: {modelName}</span>
+                ) : null}
               </div>
-              {modelName ? (
-                <span className="text-xs font-medium uppercase text-slate-400">Modelo: {modelName}</span>
-              ) : null}
+              <button
+                type="button"
+                onClick={handleClose}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Fechar modal"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleClose}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-              aria-label="Fechar modal"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-6 overscroll-contain">
-            <div className="flex flex-col gap-6">
+            <div className="flex-1 overflow-y-auto px-6 py-6 overscroll-contain">
+              <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-medium text-slate-600">
             <button
               type="button"
@@ -1378,22 +1410,27 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
                 <div className="space-y-3">
                   {fileItems.map((item, index) => {
                     const isPdfFile = item.file.type === 'application/pdf';
-                    const statusLabel =
-                      item.status === 'processing'
-                        ? 'Processando...'
-                        : item.status === 'success'
-                          ? 'Extração concluída'
-                          : item.status === 'error'
-                            ? 'Erro na extração'
-                            : 'Aguardando OCR';
-                    const statusTone =
-                      item.status === 'success'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    const isIncompleteExtraction = item.status === 'success' && item.errors
+                      ? hasPreviewErrors(item.errors)
+                      : false;
+                    const statusLabel = item.status === 'processing'
+                      ? 'Processando...'
+                      : item.status === 'success'
+                        ? isIncompleteExtraction
+                          ? 'Extração incompleta (dados pendentes)'
+                          : 'Extração concluída com sucesso'
                         : item.status === 'error'
-                          ? 'bg-rose-50 text-rose-700 border-rose-200'
-                          : item.status === 'processing'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-slate-100 text-slate-700 border-slate-200';
+                          ? 'Erro na extração'
+                          : 'Aguardando OCR';
+                    const statusTone = item.status === 'success'
+                      ? isIncompleteExtraction
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : item.status === 'error'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : item.status === 'processing'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-slate-100 text-slate-700 border-slate-200';
 
                     return (
                       <div
@@ -1470,7 +1507,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
             </div>
           )}
 
-          {mode === 'initial' && hasResult ? (
+          {shouldRenderInlinePreview ? (
             <DetectedFieldsPreview
               data={preview}
               errors={errors}
@@ -1485,7 +1522,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
             />
           ) : null}
 
-          {mode === 'adjustment' && alterationResult ? (
+          {shouldRenderInlineAdjustment && alterationResult ? (
             <AlterationPreviewPanel
               alteration={alterationResult}
               reservations={alterationMatches}
@@ -1497,7 +1534,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
             />
           ) : null}
 
-          {mode === 'adjustment' && !alterationResult && cancellationResult ? (
+          {shouldRenderInlineAdjustment && !alterationResult && cancellationResult ? (
             <CancellationPreviewPanel
               cancellation={cancellationResult}
               reservations={cancellationMatches}
@@ -1508,10 +1545,77 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
               isApplying={isApplyingAction}
             />
           ) : null}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {shouldRenderDetailModal ? (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/40 px-4 py-6 backdrop-blur-sm">
+          <div className="relative w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Dados extraídos{activeReservationLabel ? ` – ${activeReservationLabel}` : ''}
+                </h3>
+                {activeReservationLabel ? (
+                  <p className="text-xs text-slate-500">Revise e edite os dados extraídos desta reserva.</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPreviewModalOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Fechar pré-visualização"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(100vh-6rem)] overflow-y-auto px-6 py-6">
+              {mode === 'initial' && hasResult ? (
+                <DetectedFieldsPreview
+                  data={preview}
+                  errors={errors}
+                  onFieldChange={handleFieldChange}
+                  onPassengerChange={handlePassengerChange}
+                  onPassengerAdd={handlePassengerAdd}
+                  onPassengerRemove={handlePassengerRemove}
+                  onApply={handleApplyToForm}
+                  onRetry={() => handleRetry(activePreviewFileId)}
+                  onDiscard={handleDiscard}
+                  isApplying={isProcessing}
+                />
+              ) : null}
+
+              {mode === 'adjustment' && alterationResult ? (
+                <AlterationPreviewPanel
+                  alteration={alterationResult}
+                  reservations={alterationMatches}
+                  lookupStatus={alterationLookupState}
+                  onApply={handleApplyAlteration}
+                  onRetry={() => handleRetry(activePreviewFileId)}
+                  onDiscard={handleDiscard}
+                  isApplying={isApplyingAction}
+                />
+              ) : null}
+
+              {mode === 'adjustment' && !alterationResult && cancellationResult ? (
+                <CancellationPreviewPanel
+                  cancellation={cancellationResult}
+                  reservations={cancellationMatches}
+                  lookupStatus={cancellationLookupState}
+                  onApply={handleApplyCancellation}
+                  onRetry={() => handleRetry(activePreviewFileId)}
+                  onDiscard={handleDiscard}
+                  isApplying={isApplyingAction}
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
