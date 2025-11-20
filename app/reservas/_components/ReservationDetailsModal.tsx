@@ -255,7 +255,11 @@ export default function ReservationDetailsModal({ reservation, open, onClose, on
     }
   };
 
-  const detailFields = [
+  type DetailField =
+    | { key: keyof FormState; label: string; value: string; isStatus?: boolean; fullWidth?: boolean }
+    | { key: 'createdAt'; label: string; value: string; fullWidth?: boolean; isStatus?: boolean };
+
+  const detailFields: DetailField[] = [
     { key: 'operadora', label: 'OPERADORA', value: reservation.operadora ?? '-' },
     { key: 'numeroReserva', label: 'Nº RESERVA', value: reservation.numero_reserva ?? '-' },
     { key: 'dataChegada', label: 'DATA CHEGADA', value: formatDate(reservation.data_chegada) },
@@ -269,7 +273,7 @@ export default function ReservationDetailsModal({ reservation, open, onClose, on
     { key: 'passageiro', label: 'PASSAGEIRO', value: reservation.nome_pax ?? reservation.passageiro ?? '-' },
     { key: 'status', label: 'STATUS', value: reservation.status ?? 'Sem status', isStatus: true },
     { key: 'createdAt', label: 'CRIADO EM', value: formatDateTime(reservation.created_at), fullWidth: true },
-  ] as const;
+  ];
 
   return (
     <div
