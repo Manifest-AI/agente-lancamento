@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReservationRecord, ReservationsSort, ReservationsSortField } from '@/lib/queries/reservas';
+import ReservationDetailsModal from './ReservationDetailsModal';
+import { formatDate, getStatusStyle, type StatusVariant } from './reservationUtils';
 
 type ReservationsTableProps = {
   reservations: ReservationRecord[];
@@ -15,98 +17,6 @@ type ReservationsTableProps = {
   onPageChange: (page: number) => void;
   onDelete: (id: string) => void;
 };
-
-type StatusVariant = 'Confirmada' | 'Em análise' | 'Pendente' | 'Cancelada' | 'Reembolsada' | 'Finalizada' | string;
-
-const statusStyles: Record<string, string> = {
-  Confirmada: 'bg-emerald-100/80 text-emerald-700',
-  'Em análise': 'bg-amber-100/80 text-amber-700',
-  Pendente: 'bg-sky-100/80 text-sky-700',
-  Cancelada: 'bg-rose-100/80 text-rose-700',
-  Cancelado: 'bg-rose-100/80 text-rose-700',
-  Reembolsada: 'bg-purple-100/80 text-purple-700',
-  Finalizada: 'bg-slate-200 text-slate-700',
-  Ativo: 'bg-emerald-100/80 text-emerald-700',
-};
-
-function formatDate(value: string | null | undefined) {
-  if (!value) {
-    return '-';
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return '-';
-  }
-
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) {
-    const [, year, month, day] = isoMatch;
-    return `${day}/${month}/${year}`;
-  }
-
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
-    return trimmed;
-  }
-
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(date);
-}
-
-function formatTime(value: string | null | undefined) {
-  if (!value) {
-    return '-';
-  }
-
-  if (/^\d{2}:\d{2}$/.test(value)) {
-    return value;
-  }
-
-  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) {
-    return value.slice(0, 5);
-  }
-
-  const date = new Date(`1970-01-01T${value}`);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return '-';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function getStatusStyle(status: StatusVariant) {
-  return statusStyles[status] ?? 'bg-slate-200 text-slate-700';
-}
 
 function SortButton({
   label,
@@ -139,19 +49,13 @@ function SortButton({
 }
 
 const headerCells: { label: string; field?: ReservationsSortField }[] = [
-  { label: 'IDENT' },
-  { label: 'Nº RESERVA' },
   { label: 'OPERADORA' },
-  { label: 'HOTEL' },
+  { label: 'Nº RESERVA' },
   { label: 'PASSAGEIRO', field: 'nome_pax' },
+  { label: 'HOTEL' },
   { label: 'DATA CHEGADA', field: 'data_chegada' },
   { label: 'DATA SAÍDA', field: 'data_saida' },
-  { label: 'VOO CHEGADA' },
-  { label: 'HORÁRIO CHEGADA' },
-  { label: 'VOO SAÍDA' },
-  { label: 'HORÁRIO SAÍDA' },
   { label: 'STATUS', field: 'status' },
-  { label: 'CRIADO EM', field: 'created_at' },
 ];
 
 function TableHead({ sort, onSortChange }: { sort: ReservationsSort; onSortChange: (field: ReservationsSortField) => void }) {
@@ -210,6 +114,8 @@ export default function ReservationsTable({
   onPageChange,
   onDelete,
 }: ReservationsTableProps) {
+  const [selectedReservation, setSelectedReservation] = useState<ReservationRecord | null>(null);
+  const handleCloseDetails = () => setSelectedReservation(null);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const fromItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const toItem = Math.min(total, page * pageSize);
@@ -233,15 +139,17 @@ export default function ReservationsTable({
       <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
         {reservations.map((reservation) => (
           <tr key={reservation.id} className="transition hover:bg-slate-50">
-            <td className="px-4 py-3 text-xs font-medium uppercase text-slate-500" title={reservation.ident ?? '-'}>
-              {reservation.ident ?? '-'}
+            <td className="max-w-[160px] px-4 py-3">
+              <span className="block truncate" title={reservation.operadora ?? '-'}>
+                {reservation.operadora ?? '-'}
+              </span>
             </td>
             <td className="px-4 py-3 text-sm text-slate-700" title={reservation.numero_reserva ?? '-'}>
               {reservation.numero_reserva ?? '-'}
             </td>
-            <td className="max-w-[160px] px-4 py-3">
-              <span className="block truncate" title={reservation.operadora ?? '-'}>
-                {reservation.operadora ?? '-'}
+            <td className="max-w-[200px] px-4 py-3">
+              <span className="block truncate" title={reservation.nome_pax ?? '-'}>
+                {reservation.nome_pax ?? '-'}
               </span>
             </td>
             <td className="max-w-[180px] px-4 py-3">
@@ -249,21 +157,8 @@ export default function ReservationsTable({
                 {reservation.hotel ?? '-'}
               </span>
             </td>
-            <td className="max-w-[200px] px-4 py-3">
-              <span className="block truncate" title={reservation.nome_pax ?? '-'}>
-                {reservation.nome_pax ?? '-'}
-              </span>
-            </td>
             <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_chegada)}</td>
             <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_saida)}</td>
-            <td className="px-4 py-3 text-sm text-slate-700" title={reservation.voo_chegada ?? '-'}>
-              {reservation.voo_chegada ?? '-'}
-            </td>
-            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(reservation.horario_voo_chegada)}</td>
-            <td className="px-4 py-3 text-sm text-slate-700" title={reservation.voo_saida ?? '-'}>
-              {reservation.voo_saida ?? '-'}
-            </td>
-            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(reservation.horario_voo_saida)}</td>
             <td className="px-4 py-3">
               <span
                 className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
@@ -273,9 +168,15 @@ export default function ReservationsTable({
                 {reservation.status ?? 'Sem status'}
               </span>
             </td>
-            <td className="px-4 py-3 text-xs text-slate-500">{formatDateTime(reservation.created_at)}</td>
             <td className="px-4 py-3 text-right">
               <div className="flex justify-end gap-2 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setSelectedReservation(reservation)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
+                >
+                  Ver detalhes
+                </button>
                 <Link
                   href={`/reservas/${reservation.id}/editar`}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
@@ -305,6 +206,8 @@ export default function ReservationsTable({
           {content}
         </table>
       </div>
+
+      <ReservationDetailsModal reservation={selectedReservation} open={Boolean(selectedReservation)} onClose={handleCloseDetails} />
 
       {!isLoading && reservations.length === 0 ? <EmptyState /> : null}
 
