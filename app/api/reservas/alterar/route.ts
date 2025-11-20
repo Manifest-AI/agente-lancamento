@@ -160,6 +160,89 @@ function expandPassengers(changes?: ReservationPassengerChange[]) {
   return expanded;
 }
 
+const REQUIRED_RESERVATION_FIELDS: { field: string; label: string; validator?: (value: string) => boolean }[] = [
+  { field: 'operadora', label: 'Operadora' },
+  { field: 'origem', label: 'Origem' },
+  { field: 'destino', label: 'Destino' },
+  { field: 'cia_aerea', label: 'Companhia aérea' },
+  { field: 'data_voo_ida', label: 'Data do voo de ida' },
+  { field: 'hora_voo_ida', label: 'Hora do voo de ida' },
+  { field: 'data_voo_volta', label: 'Data do voo de volta' },
+  { field: 'hora_voo_volta', label: 'Hora do voo de volta' },
+  { field: 'localizador', label: 'Localizador' },
+  { field: 'codigo_reserva', label: 'Código da reserva' },
+  { field: 'regime', label: 'Regime', validator: (value) => ['PRIVATIVO', 'REGULAR'].includes(value.trim().toUpperCase()) },
+  {
+    field: 'ident',
+    label: 'Ident',
+    validator: (value) => ['BPS', 'AA/TR', 'BUE', 'BUE/A', 'BUE/T'].includes(value.trim().toUpperCase()),
+  },
+];
+
+function deriveFieldFromReservations(field: string, reservations: ReservationRecord[]) {
+  for (const reservation of reservations) {
+    const value = (reservation as Record<string, string | null | undefined>)[field];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function fillMissingRequiredFields(
+  payload: Record<string, string | null>,
+  reservations: ReservationRecord[],
+): Record<string, string | null> {
+  const filledPayload: Record<string, string | null> = { ...payload };
+
+  REQUIRED_RESERVATION_FIELDS.forEach(({ field }) => {
+    const value = filledPayload[field];
+    if (!value || !`${value}`.trim()) {
+      const derived = deriveFieldFromReservations(field, reservations);
+      if (derived) {
+        filledPayload[field] = derived;
+      }
+    }
+  });
+
+  return filledPayload;
+}
+
+function validateRequiredFields(payload: Record<string, string | null>) {
+  const missing: string[] = [];
+  const invalid: string[] = [];
+
+  REQUIRED_RESERVATION_FIELDS.forEach(({ field, label, validator }) => {
+    const value = payload[field];
+    if (!value || !`${value}`.trim()) {
+      missing.push(label);
+      return;
+    }
+
+    if (validator && !validator(value)) {
+      invalid.push(label);
+    }
+  });
+
+  if (missing.length > 0 || invalid.length > 0) {
+    const parts: string[] = [];
+    if (missing.length > 0) {
+      parts.push(`Campos obrigatórios ausentes: ${missing.join(', ')}.`);
+    }
+    if (invalid.length > 0) {
+      parts.push(`Campos com valores inválidos: ${invalid.join(', ')}.`);
+    }
+
+    return {
+      message: parts.join(' '),
+      details: { missing, invalid },
+    };
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   const token = getAccessToken(request.headers);
   if (!token) {
@@ -290,12 +373,19 @@ export async function POST(request: Request) {
       obs: restReservation.obs ?? null,
     } as Record<string, string | null>;
 
+    const enrichedBasePayload = fillMissingRequiredFields(basePayload, reservations);
+    const validationIssues = validateRequiredFields(enrichedBasePayload);
+
+    if (validationIssues) {
+      return buildErrorResponse(400, validationIssues.message, validationIssues.details);
+    }
+
     const insertPayload = addPassengers.map((passenger) => {
       const passengerName = passenger.nome?.trim() as string;
       const passengerType = mapPassengerType(passenger.tipo) ?? basePassengerType;
 
       return {
-        ...basePayload,
+        ...enrichedBasePayload,
         nome_pax: passengerName,
         passageiro: passengerName,
         tipo_pax: passengerType,
