@@ -18,6 +18,7 @@ import {
   validatePreview,
 } from './mapReservaToForm';
 import type { ReservaPreviewDraft, ReservaPreviewErrors } from './mapReservaToForm';
+import { saveReservation } from '@/lib/reservas/saveReservation';
 
 function formatDateInput(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 8);
@@ -37,15 +38,6 @@ function formatFlightCodeInput(value: string) {
 
 function formatIdentInput(value: string) {
   return value.replace(/[^A-Za-z/]/g, '').toUpperCase().slice(0, 5);
-}
-
-function toDatabaseDate(value: string) {
-  const [day, month, year] = value.split('/');
-  if (!day || !month || !year) {
-    return null;
-  }
-
-  return `${year}-${month}-${day}`;
 }
 
 export default function NovaReservaPage() {
@@ -170,37 +162,7 @@ export default function NovaReservaPage() {
 
     const sanitized = sanitizePreviewDraft(formData);
 
-    const mapClassificationToTipoPax = (
-      classificacao?: ReservaPreviewDraft['passageiros'][number]['classificacao'],
-    ) => {
-      if (classificacao === 'A' || classificacao === 'C' || classificacao === 'I') {
-        return classificacao;
-      }
-      return null;
-    };
-
-    const basePayload = {
-      operadora: sanitized.operadora || null,
-      data_chegada: toDatabaseDate(sanitized.dataChegada),
-      data_saida: toDatabaseDate(sanitized.dataSaida),
-      ident: sanitized.ident || null,
-      voo_chegada: sanitized.vooChegada || null,
-      voo_saida: sanitized.vooSaida || null,
-      horario_voo_chegada: sanitized.horarioChegada || null,
-      horario_voo_saida: sanitized.horarioSaida || null,
-      hotel: sanitized.hotel || null,
-      numero_reserva: sanitized.numeroReserva || null,
-      obs: null,
-      user_id: user?.id ?? null,
-    };
-
-    const passengersPayload = sanitized.passageiros.map((passageiro) => ({
-      ...basePayload,
-      nome_pax: passageiro?.nome || null,
-      tipo_pax: mapClassificationToTipoPax(passageiro?.classificacao) || null,
-    }));
-
-    const { error } = await supabase.from('reservas').insert(passengersPayload);
+    const { error } = await saveReservation(sanitized, { userId: user?.id ?? null, client: supabase });
 
     setIsSubmitting(false);
 
