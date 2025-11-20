@@ -160,6 +160,22 @@ function expandPassengers(changes?: ReservationPassengerChange[]) {
   return expanded;
 }
 
+function canUsePassengerSwap(addPassengers: ReservationPassengerChange[], removePassengers: ReservationPassengerChange[]) {
+  if (addPassengers.length === 0 || removePassengers.length === 0) {
+    return false;
+  }
+
+  if (addPassengers.length !== removePassengers.length) {
+    return false;
+  }
+
+  const allNamesPresent = [...addPassengers, ...removePassengers].every((passenger) =>
+    Boolean(passenger.nome && passenger.nome.trim()),
+  );
+
+  return allNamesPresent;
+}
+
 const REQUIRED_RESERVATION_FIELDS: { field: string; label: string; validator?: (value: string) => boolean }[] = [
   { field: 'operadora', label: 'Operadora' },
   { field: 'origem', label: 'Origem' },
@@ -334,6 +350,7 @@ export async function POST(request: Request) {
     acc[update.field] = update.value;
     return acc;
   }, {});
+  const shouldSwapPassengers = canUsePassengerSwap(addPassengers, removePassengers);
 
   const stats: AlterationStats = { updated: 0, added: 0, removed: 0 };
 
@@ -349,6 +366,63 @@ export async function POST(request: Request) {
     }
 
     stats.updated = reservations.length;
+  }
+
+  if (shouldSwapPassengers) {
+    const usedIds = new Set<string>();
+    const swapTargets: ReservationRecord[] = [];
+
+    for (const change of removePassengers) {
+      const normalizedName = normalizeName(change.nome);
+      if (!normalizedName) {
+        continue;
+      }
+
+      const targetReservation = reservations.find((reservation) => {
+        return !usedIds.has(reservation.id) && normalizeName(reservation.nome_pax) === normalizedName;
+      });
+
+      if (!targetReservation) {
+        return buildErrorResponse(404, 'Passageiro para substituição não encontrado.');
+      }
+
+      usedIds.add(targetReservation.id);
+      swapTargets.push(targetReservation);
+    }
+
+    for (let index = 0; index < swapTargets.length; index += 1) {
+      const target = swapTargets[index];
+      const newPassenger = addPassengers[index];
+      const newName = newPassenger.nome?.trim() as string;
+      const newType = mapPassengerType(newPassenger.tipo);
+      const swapPayload: Record<string, string> = {
+        nome_pax: newName,
+        passageiro: newName,
+      };
+
+      if (newType) {
+        swapPayload.tipo_pax = newType;
+      }
+
+      const { error: swapError } = await adminClient
+        .from('reservas')
+        .update(swapPayload)
+        .eq('id', target.id)
+        .eq('user_id', userId);
+
+      if (swapError) {
+        console.error('[reservas/alterar] Falha ao trocar passageiro.', {
+          numeroReserva,
+          message: swapError.message,
+          details: swapError.details,
+        });
+        return buildErrorResponse(500, 'Falha ao trocar passageiro.', { message: swapError.message });
+      }
+    }
+
+    stats.updated += swapTargets.length;
+
+    return buildSuccessResponse(stats);
   }
 
   if (removePassengers.length > 0) {
