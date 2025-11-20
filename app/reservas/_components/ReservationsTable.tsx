@@ -16,6 +16,8 @@ type ReservationsTableProps = {
   onSortChange: (field: ReservationsSortField) => void;
   onPageChange: (page: number) => void;
   onDelete: (id: string) => void;
+  onReservationUpdate: (reservation: ReservationRecord) => void;
+  userId?: string;
 };
 
 function SortButton({
@@ -113,9 +115,15 @@ export default function ReservationsTable({
   onSortChange,
   onPageChange,
   onDelete,
+  onReservationUpdate,
+  userId,
 }: ReservationsTableProps) {
   const [selectedReservation, setSelectedReservation] = useState<ReservationRecord | null>(null);
   const handleCloseDetails = () => setSelectedReservation(null);
+  const handleReservationUpdated = (reservation: ReservationRecord) => {
+    setSelectedReservation(reservation);
+    onReservationUpdate(reservation);
+  };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const fromItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const toItem = Math.min(total, page * pageSize);
@@ -201,7 +209,13 @@ export default function ReservationsTable({
         </table>
       </div>
 
-      <ReservationDetailsModal reservation={selectedReservation} open={Boolean(selectedReservation)} onClose={handleCloseDetails} />
+      <ReservationDetailsModal
+        reservation={selectedReservation}
+        open={Boolean(selectedReservation)}
+        onClose={handleCloseDetails}
+        onUpdate={handleReservationUpdated}
+        userId={userId}
+      />
 
       {!isLoading && reservations.length === 0 ? <EmptyState /> : null}
 

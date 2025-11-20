@@ -242,6 +242,10 @@ export default function ReservationsPageContent() {
     }
   }, [refreshData, selectedReservationId, user]);
 
+  const handleReservationUpdate = useCallback((updated: ReservationRecord) => {
+    setReservations((previous) => previous.map((reservation) => (reservation.id === updated.id ? updated : reservation)));
+  }, []);
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
@@ -292,6 +296,8 @@ export default function ReservationsPageContent() {
           onSortChange={handleSortChange}
           onPageChange={handlePageChange}
           onDelete={handleDeleteRequest}
+          onReservationUpdate={handleReservationUpdate}
+          userId={user?.id}
         />
       </section>
 
