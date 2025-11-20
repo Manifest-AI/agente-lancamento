@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { ReservationRecord } from '@/lib/queries/reservas';
-import { CANCELLATION_STATUS, RESERVATION_STATUS } from '@/lib/reservas/status';
+import { CANCELLATION_STATUS, sanitizeReservationStatus } from '@/lib/reservas/status';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdminClient';
 import type {
   ApplyAlterationPayload,
@@ -268,6 +268,12 @@ export async function POST(request: Request) {
 
   if (addPassengers.length > 0) {
     const baseReservation = reservations[0] as ReservationRecord;
+    const sanitizedStatus = sanitizeReservationStatus(baseReservation.status, (rejectedStatus) => {
+      console.error('[reservas/alterar] Ignorando status inválido ao adicionar passageiros.', {
+        numeroReserva,
+        rejectedStatus,
+      });
+    });
     const basePayload = {
       operadora: baseReservation.operadora,
       data_chegada: updates.find((item) => item.field === 'data_chegada')?.value ?? baseReservation.data_chegada,
@@ -282,7 +288,7 @@ export async function POST(request: Request) {
       hotel: updates.find((item) => item.field === 'hotel')?.value ?? baseReservation.hotel,
       numero_reserva: numeroReserva,
       user_id: userId,
-      status: baseReservation.status ?? RESERVATION_STATUS.CONFIRMED,
+      status: sanitizedStatus,
       obs: baseReservation.obs ?? null,
     } as Record<string, string | null>;
 
