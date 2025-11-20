@@ -207,15 +207,14 @@ export async function POST(request: Request) {
   const updates = resolveFieldUpdates(body.updates);
   const addPassengers = expandPassengers(body.addPassengers);
   const removePassengers = expandPassengers(body.removePassengers);
+  const updatePayload = updates.reduce<Record<string, string | null>>((acc, update) => {
+    acc[update.field] = update.value;
+    return acc;
+  }, {});
 
   const stats: AlterationStats = { updated: 0, added: 0, removed: 0 };
 
   if (updates.length > 0) {
-    const updatePayload = updates.reduce<Record<string, string | null>>((acc, update) => {
-      acc[update.field] = update.value;
-      return acc;
-    }, {});
-
     const { error: updateError } = await adminClient
       .from('reservas')
       .update(updatePayload)
@@ -267,40 +266,50 @@ export async function POST(request: Request) {
   }
 
   if (addPassengers.length > 0) {
+    const invalidPassenger = addPassengers.find((passenger) => !passenger.nome || !passenger.nome.trim());
+
+    if (invalidPassenger) {
+      return buildErrorResponse(400, 'Nome do passageiro é obrigatório para adicionar um novo passageiro.');
+    }
+
     const baseReservation = reservations[0] as ReservationRecord;
+    const { id: _id, created_at: _createdAt, ...restReservation } = baseReservation;
     const sanitizedStatus = sanitizeReservationStatus(baseReservation.status, (rejectedStatus) => {
       console.error('[reservas/alterar] Ignorando status inválido ao adicionar passageiros.', {
         numeroReserva,
         rejectedStatus,
       });
     });
+    const basePassengerType = mapPassengerType(baseReservation.tipo_pax) ?? 'A';
     const basePayload = {
-      operadora: baseReservation.operadora,
-      data_chegada: updates.find((item) => item.field === 'data_chegada')?.value ?? baseReservation.data_chegada,
-      data_saida: updates.find((item) => item.field === 'data_saida')?.value ?? baseReservation.data_saida,
-      ident: updates.find((item) => item.field === 'ident')?.value ?? baseReservation.ident,
-      voo_chegada: updates.find((item) => item.field === 'voo_chegada')?.value ?? baseReservation.voo_chegada,
-      voo_saida: updates.find((item) => item.field === 'voo_saida')?.value ?? baseReservation.voo_saida,
-      horario_voo_chegada:
-        updates.find((item) => item.field === 'horario_voo_chegada')?.value ?? baseReservation.horario_voo_chegada,
-      horario_voo_saida:
-        updates.find((item) => item.field === 'horario_voo_saida')?.value ?? baseReservation.horario_voo_saida,
-      hotel: updates.find((item) => item.field === 'hotel')?.value ?? baseReservation.hotel,
+      ...restReservation,
+      ...updatePayload,
       numero_reserva: numeroReserva,
       user_id: userId,
       status: sanitizedStatus,
-      obs: baseReservation.obs ?? null,
+      obs: restReservation.obs ?? null,
     } as Record<string, string | null>;
 
-    const insertPayload = addPassengers.map((passenger) => ({
-      ...basePayload,
-      nome_pax: passenger.nome ?? null,
-      tipo_pax: passenger.tipo ?? null,
-    }));
+    const insertPayload = addPassengers.map((passenger) => {
+      const passengerName = passenger.nome?.trim() as string;
+      const passengerType = mapPassengerType(passenger.tipo) ?? basePassengerType;
+
+      return {
+        ...basePayload,
+        nome_pax: passengerName,
+        passageiro: passengerName,
+        tipo_pax: passengerType,
+      };
+    });
 
     const { error: insertError } = await adminClient.from('reservas').insert(insertPayload);
 
     if (insertError) {
+      console.error('[reservas/alterar] Falha ao adicionar passageiros.', {
+        numeroReserva,
+        message: insertError.message,
+        details: insertError.details,
+      });
       return buildErrorResponse(500, 'Falha ao adicionar passageiros.', { message: insertError.message });
     }
 
