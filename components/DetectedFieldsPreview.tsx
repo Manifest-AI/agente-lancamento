@@ -114,7 +114,7 @@ export function DetectedFieldsPreview({
           disabled={isApplying}
           className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isApplying ? 'Aplicando...' : 'Aplicar ao formulário'}
+          {isApplying ? 'Salvando...' : 'Salvar reserva'}
         </button>
       </div>
     </div>

@@ -27,6 +27,7 @@ import type {
   ApplyCancellationPayload,
   ReservationLookupState,
 } from '@/types/reservation-adjustments';
+import { saveReservation } from '@/lib/reservas/saveReservation';
 
 export type ImportReservaModalProps = {
   isOpen: boolean;
@@ -67,6 +68,8 @@ type FileExtractionState = {
   preview?: ReservaPreviewDraft;
   errors?: ReservaPreviewErrors;
   modelName?: string | null;
+  isSaving?: boolean;
+  isSaved?: boolean;
 };
 
 function toExtractorErrorDetails(value: unknown): ExtractorErrorDetails | null {
@@ -109,7 +112,7 @@ function mapErrorCodeToMessage(code: string | undefined) {
   }
 }
 
-export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 'initial' }: ImportReservaModalProps) {
+export function ImportReservaModal({ isOpen, onClose, onApply: _onApply, onNotify, mode = 'initial' }: ImportReservaModalProps) {
   const { user, session } = useAuth();
   const [activeTab, setActiveTab] = useState<'text' | 'image'>('text');
   const [textInput, setTextInput] = useState('');
@@ -133,6 +136,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
   const [clipboardSupport, setClipboardSupport] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [previewOrigin, setPreviewOrigin] = useState<'text' | 'file' | null>(null);
+  const [isSavingPreview, setIsSavingPreview] = useState(false);
+  const [savingFileId, setSavingFileId] = useState<string | null>(null);
   const errorDetailsRef = useRef<HTMLPreElement | null>(null);
 
   const hasResult = useMemo(() => {
@@ -289,6 +294,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     setAlterationLookupState('idle');
     setCancellationLookupState('idle');
     setIsApplyingAction(false);
+    setIsSavingPreview(false);
+    setSavingFileId(null);
     setModelName(null);
     setErrorMessage(null);
     setErrorDetails(null);
@@ -307,6 +314,7 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     setClipboardSupport('unknown');
     setIsPreviewModalOpen(false);
     setPreviewOrigin(null);
+    setSavingFileId(null);
     setFileItems((items) => {
       items.forEach((item) => {
         if (item.previewUrl) {
@@ -346,6 +354,8 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     preview: undefined,
     errors: undefined,
     modelName: null,
+    isSaving: false,
+    isSaved: false,
   });
 
   const handleFilesAdd = (files: FileList | File[]) => {
@@ -632,14 +642,21 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     async (formData: FormData, options?: { fileId?: string }) => {
       const targetFileId = options?.fileId ?? null;
       if (targetFileId) {
-        setFileItems((previous) =>
-          previous.map((item) =>
-            item.id === targetFileId
-              ? { ...item, status: 'processing', errorMessage: null, errorDetails: null }
-              : item,
-          ),
-        );
-      }
+            setFileItems((previous) =>
+              previous.map((item) =>
+                item.id === targetFileId
+                  ? {
+                      ...item,
+                      status: 'processing',
+                      errorMessage: null,
+                      errorDetails: null,
+                      isSaving: false,
+                      isSaved: false,
+                    }
+                  : item,
+              ),
+            );
+          }
       const updateFileState = (
         status: FileExtractionState['status'],
         extra?: Partial<FileExtractionState>,
@@ -649,14 +666,15 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
         }
         setFileItems((previous) =>
           previous.map((item) =>
-            item.id === targetFileId
-              ? {
-                  ...item,
-                  status,
-                  ...extra,
-                }
-              : item,
-          ),
+                item.id === targetFileId
+                  ? {
+                      ...item,
+                      status,
+                      ...extra,
+                      isSaved: status === 'pending' ? false : item.isSaved,
+                    }
+                  : item,
+              ),
         );
       };
       if (mode === 'adjustment') {
@@ -883,10 +901,20 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
               preview: undefined,
               errors: undefined,
               modelName: null,
+              isSaving: false,
+              isSaved: false,
             }
           : item,
       ),
     );
+  };
+
+  const validateAndPreparePreview = (draft: ReservaPreviewDraft) => {
+    const validationErrors = validatePreview(draft);
+    const hasErrors = hasPreviewErrors(validationErrors);
+    const sanitized = sanitizePreviewDraft(draft);
+
+    return { validationErrors, hasErrors, sanitized };
   };
 
   const handleExtractFromFile = async (fileId: string) => {
@@ -944,6 +972,60 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     }
 
     handleClose();
+  };
+
+  const handleSaveFileReservation = async (fileId: string) => {
+    const fileEntry = fileItems.find((item) => item.id === fileId);
+    if (!fileEntry?.preview) {
+      return;
+    }
+
+    const { validationErrors, hasErrors, sanitized } = validateAndPreparePreview(fileEntry.preview);
+
+    setFileItems((previous) =>
+      previous.map((item) => (item.id === fileId ? { ...item, errors: validationErrors } : item)),
+    );
+
+    if (hasErrors) {
+      setErrorMessage('Revise os campos destacados antes de salvar.');
+      setErrorDetails(null);
+      setShowErrorDetails(false);
+      errorDetailsRef.current = null;
+      onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de salvar.' });
+      handleOpenPreview(fileId);
+      return;
+    }
+
+    setSavingFileId(fileId);
+    setFileItems((previous) =>
+      previous.map((item) => (item.id === fileId ? { ...item, isSaving: true } : item)),
+    );
+
+    try {
+      const { error } = await saveReservation(sanitized, { userId: user?.id ?? null, client: supabase });
+      if (error) {
+        console.error('Erro ao salvar reserva importada', error);
+        onNotify?.({ type: 'error', message: 'Não foi possível salvar a reserva. Tente novamente.' });
+        return;
+      }
+
+      setFileItems((previous) =>
+        previous.map((item) =>
+          item.id === fileId
+            ? { ...item, preview: sanitized, errors: validationErrors, isSaving: false, isSaved: true }
+            : item,
+        ),
+      );
+      onNotify?.({ type: 'success', message: 'Reserva salva com sucesso.' });
+    } catch (error) {
+      console.error('Erro inesperado ao salvar reserva importada', error);
+      onNotify?.({ type: 'error', message: 'Não foi possível salvar a reserva. Tente novamente.' });
+    } finally {
+      setSavingFileId(null);
+      setFileItems((previous) =>
+        previous.map((item) => (item.id === fileId ? { ...item, isSaving: false } : item)),
+      );
+    }
   };
 
   const handleFieldChange = (field: keyof Omit<ReservaPreviewDraft, 'passageiros'>, value: string) => {
@@ -1018,23 +1100,53 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
     errorDetailsRef.current = null;
   };
 
-  const handleApplyToForm = () => {
-    const validationErrors = validatePreview(preview);
+  const handleSavePreview = async () => {
+    const { validationErrors, hasErrors, sanitized } = validateAndPreparePreview(preview);
     setErrors(validationErrors);
 
-    if (hasPreviewErrors(validationErrors)) {
-      setErrorMessage('Revise os campos destacados antes de aplicar.');
+    if (hasErrors) {
+      setErrorMessage('Revise os campos destacados antes de salvar.');
       setErrorDetails(null);
       setShowErrorDetails(false);
       errorDetailsRef.current = null;
       return;
     }
 
-    const sanitized = sanitizePreviewDraft(preview);
+    setIsSavingPreview(true);
+    setErrorMessage(null);
+    setErrorDetails(null);
+    setShowErrorDetails(false);
+    errorDetailsRef.current = null;
+    try {
+      const { error } = await saveReservation(sanitized, { userId: user?.id ?? null, client: supabase });
 
-    onApply(sanitized);
-    onNotify?.({ type: 'success', message: 'Campos aplicados ao formulário. Revise antes de salvar.' });
-    handleClose();
+      if (error) {
+        console.error('Erro ao salvar reserva importada', error);
+        setErrorMessage('Não foi possível salvar a reserva. Tente novamente.');
+        onNotify?.({ type: 'error', message: 'Não foi possível salvar a reserva. Tente novamente.' });
+        return;
+      }
+
+      if (activePreviewFileId) {
+        setFileItems((previous) =>
+          previous.map((item) =>
+            item.id === activePreviewFileId
+              ? { ...item, preview: sanitized, errors: validationErrors, isSaved: true }
+              : item,
+          ),
+        );
+      }
+
+      onNotify?.({ type: 'success', message: 'Reserva salva com sucesso.' });
+      setIsPreviewModalOpen(false);
+      setActivePreviewFileId(null);
+    } catch (error) {
+      console.error('Erro inesperado ao salvar reserva importada', error);
+      setErrorMessage('Não foi possível salvar a reserva. Tente novamente.');
+      onNotify?.({ type: 'error', message: 'Não foi possível salvar a reserva. Tente novamente.' });
+    } finally {
+      setIsSavingPreview(false);
+    }
   };
 
   const handleApplyAlteration = useCallback(
@@ -1476,6 +1588,20 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
                           <div className="flex flex-col gap-2">
                             <button
                               type="button"
+                              onClick={() => handleSaveFileReservation(item.id)}
+                              disabled={item.status !== 'success' || item.isSaving}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {(savingFileId === item.id || item.isSaving) && (
+                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                              )}
+                              {savingFileId === item.id || item.isSaving ? 'Salvando…' : 'Salvar reserva'}
+                            </button>
+                            {item.isSaved ? (
+                              <span className="text-xs font-medium text-emerald-600">Reserva salva</span>
+                            ) : null}
+                            <button
+                              type="button"
                               onClick={() => handleExtractFromFile(item.id)}
                               disabled={item.status === 'processing'}
                               className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
@@ -1515,10 +1641,10 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
               onPassengerChange={handlePassengerChange}
               onPassengerAdd={handlePassengerAdd}
               onPassengerRemove={handlePassengerRemove}
-              onApply={handleApplyToForm}
+              onApply={handleSavePreview}
               onRetry={() => handleRetry(activePreviewFileId)}
               onDiscard={handleDiscard}
-              isApplying={isProcessing}
+              isApplying={isSavingPreview}
             />
           ) : null}
 
@@ -1582,10 +1708,10 @@ export function ImportReservaModal({ isOpen, onClose, onApply, onNotify, mode = 
                   onPassengerChange={handlePassengerChange}
                   onPassengerAdd={handlePassengerAdd}
                   onPassengerRemove={handlePassengerRemove}
-                  onApply={handleApplyToForm}
+                  onApply={handleSavePreview}
                   onRetry={() => handleRetry(activePreviewFileId)}
                   onDiscard={handleDiscard}
-                  isApplying={isProcessing}
+                  isApplying={isSavingPreview}
                 />
               ) : null}
 
