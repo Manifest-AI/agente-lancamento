@@ -419,7 +419,6 @@ export async function POST(request: Request) {
 
       const swapPayload: Record<string, string> = {
         nome_pax: newName,
-        passageiro: newName,
       };
 
       const targetType = mapPassengerType(swapPair.target.tipo_pax);
@@ -552,17 +551,16 @@ export async function POST(request: Request) {
       return buildErrorResponse(400, enrichedValidationIssues.message, enrichedValidationIssues.details);
     }
 
-    const insertPayload = remainingAdds.map((passenger) => {
-      const passengerName = passenger.nome?.trim() as string;
-      const passengerType = mapPassengerType(passenger.tipo) ?? basePassengerType;
+      const insertPayload = remainingAdds.map((passenger) => {
+        const passengerName = passenger.nome?.trim() as string;
+        const passengerType = mapPassengerType(passenger.tipo) ?? basePassengerType;
 
-      return {
-        ...enrichedBasePayload,
-        nome_pax: passengerName,
-        passageiro: passengerName,
-        tipo_pax: passengerType,
-      };
-    });
+        return {
+          ...enrichedBasePayload,
+          nome_pax: passengerName,
+          tipo_pax: passengerType,
+        };
+      });
 
     const { error: insertError } = await adminClient.from('reservas').insert(insertPayload);
 
