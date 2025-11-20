@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ReservationRecord } from '@/lib/queries/reservas';
 import type { ReservationPassengerChange } from '@/types/reservation-adjustments';
-import { applyPassengerSwaps, preparePassengerSwaps } from './route';
+import { applyPassengerSwaps, preparePassengerSwaps } from './swaps';
 
 function createReservation(id: string, name: string): ReservationRecord {
   return {
