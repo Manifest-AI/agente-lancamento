@@ -196,7 +196,6 @@ export type UpdateReservationPayload = Partial<
     | 'numero_reserva'
     | 'status'
     | 'nome_pax'
-    | 'passageiro'
   >
 >;
 
