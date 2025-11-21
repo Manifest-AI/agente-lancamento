@@ -10,6 +10,7 @@ import {
 } from '@/lib/queries/relatorios';
 import { formatDate, formatTime, getStatusStyle, type StatusVariant } from '@/app/reservas/_components/reservationUtils';
 import type { ReservationRecord } from '@/lib/queries/reservas';
+import styles from './RoamingListPageContent.module.css';
 
 function buildInitialDate(): string {
   // Usando a data atual para iniciar o relatório com um período válido por padrão
@@ -135,24 +136,27 @@ export default function RoamingListPageContent() {
   };
 
   const activeReportType = filters.reportType ?? 'in';
+  const showArrivalColumn = activeReportType !== 'out';
+  const showDepartureColumn = activeReportType !== 'in';
   const reportTypeLabel =
-    activeReportType === 'out' ? 'Relatório de OUT (saídas)' : 'Relatório de IN (chegadas)';
-  const reportTypeHint =
     activeReportType === 'out'
-      ? 'Os resultados são ordenados por operadora e horário de saída.'
-      : 'Os resultados são ordenados por operadora e horário de chegada.';
+      ? 'Relatório de OUT (saídas)'
+      : activeReportType === 'both'
+        ? 'Relatório de IN e OUT (chegadas e saídas)'
+        : 'Relatório de IN (chegadas)';
+  const reportTypeHint = 'Os resultados são ordenados por regime, operadora e horário do voo.';
   const periodLabel = `${formatDate(filters.startDate)} até ${formatDate(filters.endDate)}`;
-  const columnCount = 9;
-  const totalLabel = activeReportType === 'out' ? 'saída(s)' : 'chegada(s)';
+  const columnCount = 7 + Number(showArrivalColumn) + Number(showDepartureColumn);
+  const totalLabel = activeReportType === 'out' ? 'saída(s)' : activeReportType === 'both' ? 'registro(s)' : 'chegada(s)';
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-12">
+    <main className={`${styles.roamingLayout} mx-auto flex min-h-screen w-full max-w-none flex-col gap-8 px-6 py-12`}>
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">Roaming List – Chegada de Passageiros</h1>
           <p className="text-sm text-slate-600">Visualize as chegadas e saídas em um determinado período.</p>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center print:hidden">
+        <div className={`${styles.printHidden} flex flex-col gap-3 sm:flex-row sm:items-center print:hidden`}>
           <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
@@ -175,7 +179,7 @@ export default function RoamingListPageContent() {
         </div>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
+      <section className={`${styles.printHidden} rounded-2xl border border-slate-200 bg-white p-6 shadow-sm print:hidden`}>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1">
@@ -225,6 +229,17 @@ export default function RoamingListPageContent() {
                   />
                   Relatório de OUT (saídas)
                 </label>
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="radio"
+                    name="report-type"
+                    value="both"
+                    checked={reportTypeInput === 'both'}
+                    onChange={() => setReportTypeInput('both')}
+                    className="h-4 w-4 border border-slate-300 text-blue-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  Ambos (chegadas e saídas)
+                </label>
               </div>
             </fieldset>
           </div>
@@ -256,14 +271,14 @@ export default function RoamingListPageContent() {
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         ) : null}
 
-        <div className="overflow-x-auto print:overflow-visible">
-          <table className="min-w-full divide-y divide-slate-200">
+        <div className={`${styles.roamingWrapper}`}>
+          <table className={`${styles.roamingTable} divide-y divide-slate-200`}>
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Operadora</th>
                 <th className="px-4 py-3">Seq</th>
-                <th className="px-4 py-3">Chegada</th>
-                <th className="px-4 py-3">Saída</th>
+                {showArrivalColumn ? <th className="px-4 py-3">Chegada</th> : null}
+                {showDepartureColumn ? <th className="px-4 py-3">Saída</th> : null}
                 <th className="px-4 py-3">Hotel</th>
                 <th className="px-4 py-3">Reserva / Passageiro</th>
                 <th className="px-4 py-3">Ident</th>
@@ -289,33 +304,25 @@ export default function RoamingListPageContent() {
                   return (
                     <Fragment key={`${reservation.id}-${sequence}`}>
                       <tr className="text-sm text-slate-700">
-                        <td className="max-w-[180px] px-4 py-3">
-                          <span className="block truncate" title={reservation.operadora ?? '-'}>
-                            {reservation.operadora ?? '-'}
-                          </span>
-                        </td>
+                        <td className="px-4 py-3">{reservation.operadora ?? '-'}</td>
                         <td className="px-4 py-3 text-slate-600">{sequence}</td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {buildFlightInfo(reservation.data_chegada, reservation.horario_voo_chegada, reservation.voo_chegada)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {buildFlightInfo(reservation.data_saida, reservation.horario_voo_saida, reservation.voo_saida)}
-                        </td>
-                        <td className="max-w-[180px] px-4 py-3">
-                          <span className="block truncate" title={reservation.hotel ?? '-'}>
-                            {reservation.hotel ?? '-'}
-                          </span>
-                        </td>
-                        <td className="max-w-[260px] px-4 py-3">
-                          <span className="block truncate" title={formatReservationPassenger(reservation)}>
-                            {formatReservationPassenger(reservation)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">{reservation.ident ?? '-'}</td>
-                        <td className="px-4 py-3 text-slate-700">{reservation.regime ?? '–'}</td>
+                        {showArrivalColumn ? (
+                          <td className={`${styles.roamingNowrap} px-4 py-3 text-slate-700`}>
+                            {buildFlightInfo(reservation.data_chegada, reservation.horario_voo_chegada, reservation.voo_chegada)}
+                          </td>
+                        ) : null}
+                        {showDepartureColumn ? (
+                          <td className={`${styles.roamingNowrap} px-4 py-3 text-slate-700`}>
+                            {buildFlightInfo(reservation.data_saida, reservation.horario_voo_saida, reservation.voo_saida)}
+                          </td>
+                        ) : null}
+                        <td className={`${styles.roamingWrap} px-4 py-3`}>{reservation.hotel ?? '-'}</td>
+                        <td className={`${styles.roamingWrap} px-4 py-3`}>{formatReservationPassenger(reservation)}</td>
+                        <td className={`${styles.roamingNowrap} px-4 py-3 text-slate-700`}>{reservation.ident ?? '-'}</td>
+                        <td className={`${styles.roamingNowrap} px-4 py-3 text-slate-700`}>{reservation.regime ?? '–'}</td>
                         <td className="px-4 py-3">
                           <span
-                            className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle((reservation.status as StatusVariant) ?? 'Pendente')}`}
+                            className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle((reservation.status as StatusVariant) ?? 'Pendente')}`}
                           >
                             {reservation.status ?? 'Sem status'}
                           </span>
@@ -342,7 +349,9 @@ export default function RoamingListPageContent() {
           </table>
         </div>
 
-        <footer className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between print:hidden">
+        <footer
+          className={`${styles.printHidden} flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between print:hidden`}
+        >
           <span>
             Exibindo {(page - 1) * ROAMING_LIST_PAGE_SIZE + (items.length ? 1 : 0)} -
             {(page - 1) * ROAMING_LIST_PAGE_SIZE + items.length} de {total} {totalLabel}
