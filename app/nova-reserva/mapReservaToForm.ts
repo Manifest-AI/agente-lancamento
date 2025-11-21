@@ -19,7 +19,7 @@ export type ReservaPreviewDraft = {
   horarioSaida: string;
   hotel: string;
   numeroReserva: string;
-  regime: '' | 'Privativo' | 'REGULAR';
+  regime: '' | 'PRIVATIVO' | 'REGULAR';
   passageiros: ReservaPreviewPassenger[];
 };
 
@@ -81,7 +81,7 @@ function normalizeRegime(value: string | null | undefined): ReservaPreviewDraft[
   const normalized = (value ?? '').trim().toUpperCase();
 
   if (normalized === 'PRIVATIVO') {
-    return 'Privativo';
+    return 'PRIVATIVO';
   }
   if (normalized === 'REGULAR') {
     return 'REGULAR';
@@ -203,7 +203,7 @@ export function sanitizePreviewDraft(preview: ReservaPreviewDraft): ReservaPrevi
     horarioSaida: preview.horarioSaida.trim(),
     hotel: preview.hotel.trim(),
     numeroReserva: preview.numeroReserva.trim(),
-    regime: preview.regime.trim() as ReservaPreviewDraft['regime'],
+    regime: preview.regime.trim().toUpperCase() as ReservaPreviewDraft['regime'],
     passageiros: preview.passageiros.map((passageiro) => ({
       nome: passageiro.nome.trim(),
       classificacao: passageiro.classificacao.trim() as ReservaPreviewDraft['passageiros'][number]['classificacao'],

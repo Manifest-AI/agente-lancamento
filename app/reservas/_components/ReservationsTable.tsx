@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { ReservationRecord, ReservationsSort, ReservationsSortField } from '@/lib/queries/reservas';
 import ReservationDetailsModal from './ReservationDetailsModal';
-import { formatDate, getStatusStyle, type StatusVariant } from './reservationUtils';
+import { formatDate, formatRegimeLabel, getStatusStyle, type StatusVariant } from './reservationUtils';
 
 type ReservationsTableProps = {
   reservations: ReservationRecord[];
@@ -52,6 +52,7 @@ function SortButton({
 
 const headerCells: { label: string; field?: ReservationsSortField }[] = [
   { label: 'OPERADORA' },
+  { label: 'REGIME' },
   { label: 'Nº RESERVA' },
   { label: 'PASSAGEIRO', field: 'nome_pax' },
   { label: 'HOTEL' },
@@ -151,6 +152,9 @@ export default function ReservationsTable({
               <span className="block truncate" title={reservation.operadora ?? '-'}>
                 {reservation.operadora ?? '-'}
               </span>
+            </td>
+            <td className="px-4 py-3 text-sm text-slate-700" title={formatRegimeLabel(reservation.regime)}>
+              {formatRegimeLabel(reservation.regime)}
             </td>
             <td className="px-4 py-3 text-sm text-slate-700" title={reservation.numero_reserva ?? '-'}>
               {reservation.numero_reserva ?? '-'}
