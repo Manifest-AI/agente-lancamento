@@ -126,13 +126,13 @@ function validateForm(values: FormState): FormErrors {
   if (!values.vooChegada) {
     errors.vooChegada = 'Campo obrigatório.';
   } else if (!FLIGHT_REGEX.test(values.vooChegada)) {
-    errors.vooChegada = 'Informe o código do voo (ex.: LA3600).';
+    errors.vooChegada = 'Informe o código do voo como CIA+NÚMERO, tudo junto (ex.: LA3600, sem espaços ou símbolos).';
   }
 
   if (!values.vooSaida) {
     errors.vooSaida = 'Campo obrigatório.';
   } else if (!FLIGHT_REGEX.test(values.vooSaida)) {
-    errors.vooSaida = 'Informe o código do voo (ex.: LA3343).';
+    errors.vooSaida = 'Informe o código do voo como CIA+NÚMERO, tudo junto (ex.: LA3343, sem espaços ou símbolos).';
   }
 
   if (!values.horarioChegada) {

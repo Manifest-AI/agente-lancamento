@@ -43,6 +43,21 @@ REGRAS IMPORTANTES:
 - "voo_chegada_codigo" e "voo_saida_codigo" aceitam QUALQUER companhia aérea (G3####, LA####, AD####, AR####, etc.). NÃO limite aos exemplos.
 - "hora_chegada_bps" e "hora_saida_bps" devem ficar no formato "HH:MM" em 24 horas.
 
+REGRAS ULTRA CLARAS PARA OS CÓDIGOS DE VOOS (CHEGADA E SAÍDA):
+- Sempre retorne um ÚNICO valor com código da companhia aérea (apenas letras, sem espaços ou símbolos) imediatamente seguido do número do voo (apenas dígitos), tudo junto, sem hífens, barras, pontos ou espaços. Ex.: LA3600.
+- Quando a reserva mostrar a companhia em um campo e o número em outro, identifique ambos e concatene no formato "CIA+NÚMERO" sem separadores.
+- O código precisa ter ao menos uma letra e ao menos quatro dígitos; se houver só letras ou só dígitos, considere incompleto e retorne string vazia "".
+- Se não houver confiança para montar companhia + número completos, devolva "" em vez de partes, suposições ou valores inventados.
+- Não inclua textos extras como "voo", "cia", "número" e não use abreviações de companhia que não estejam explícitas; se a companhia não estiver clara, retorne "".
+- Priorize a aderência ao schema e às validações: é melhor retornar "" do que completar de forma criativa.
+
+REGRAS DE FIDELIDADE PARA O NOME DO HOTEL:
+- Copie o nome do hotel exatamente como está na reserva: preserve letras, acentos, espaços e abreviações, sem corrigir ou ajustar.
+- Não corrija ortografia ou gramática, não traduza, não altere a ordem das palavras, não inclua ou remova termos, não substitua por nomes parecidos ou versões "melhoradas".
+- Se o texto do hotel estiver ilegível, truncado ou ambíguo a ponto de não haver certeza, retorne string vazia "" em vez de adivinhar.
+- Se o nome do hotel aparecer em mais de um lugar, escolha a versão mais completa e clara, mantendo a grafia original.
+- É proibido inventar ou ajustar o nome do hotel; a fidelidade ao texto do voucher é mais importante que qualquer correção estética.
+
 REGRAS ESPECÍFICAS PARA O LAYOUT INFOTRAVEL/TAIPE (SEM QUEBRAR OUTROS FORMATOS):
 - Use estas orientações adicionais quando identificar que a tela segue o layout Infotravel/Taipe. Em outros modelos de reserva continue seguindo o mesmo JSON e regras gerais normalmente.
 - Campo "operadora" nesses layouts:
