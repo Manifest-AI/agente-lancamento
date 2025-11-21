@@ -96,3 +96,17 @@ export function formatDateTime(value: string | null | undefined) {
     minute: '2-digit',
   }).format(date);
 }
+
+export function formatRegimeLabel(value: string | null | undefined) {
+  const normalized = (value ?? '').trim().toUpperCase();
+
+  if (normalized === 'PRIVATIVO') {
+    return 'Privativo';
+  }
+
+  if (normalized === 'REGULAR') {
+    return 'Regular';
+  }
+
+  return '-';
+}

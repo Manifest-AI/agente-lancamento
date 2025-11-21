@@ -34,6 +34,7 @@ export function buildReservationPayload(preview: ReservaPreviewDraft, userId?: s
     horario_voo_saida: preview.horarioSaida || null,
     hotel: preview.hotel || null,
     numero_reserva: preview.numeroReserva || null,
+    regime: preview.regime || null,
     obs: null,
     user_id: userId ?? null,
   };

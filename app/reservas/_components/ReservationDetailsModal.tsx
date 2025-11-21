@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { parseFlexibleToDate } from '@/lib/dateBr';
 import { updateReservation, type ReservationRecord, type UpdateReservationPayload } from '@/lib/queries/reservas';
-import { formatDate, formatDateTime, formatTime, getStatusStyle, type StatusVariant } from './reservationUtils';
+import {
+  formatDate,
+  formatDateTime,
+  formatRegimeLabel,
+  formatTime,
+  getStatusStyle,
+  type StatusVariant,
+} from './reservationUtils';
 
 type ReservationDetailsModalProps = {
   reservation: ReservationRecord | null;
@@ -26,6 +33,7 @@ type FormState = {
   ident: string;
   passageiro: string;
   status: string;
+  regime: string;
 };
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
@@ -66,6 +74,7 @@ function mapReservationToForm(reservation: ReservationRecord): FormState {
     ident: reservation.ident ?? '',
     passageiro: reservation.nome_pax ?? reservation.passageiro ?? '',
     status: reservation.status ?? '',
+    regime: reservation.regime ?? '',
   };
 }
 
@@ -83,6 +92,7 @@ function sanitizeForm(values: FormState): FormState {
     ident: values.ident.trim().toUpperCase(),
     passageiro: values.passageiro.trim().toUpperCase(),
     status: values.status.trim(),
+    regime: values.regime.trim().toUpperCase(),
   };
 }
 
@@ -143,6 +153,13 @@ function validateForm(values: FormState): FormErrors {
 
   if (!values.passageiro) {
     errors.passageiro = 'Campo obrigatório.';
+  }
+
+  const normalizedRegime = values.regime.trim().toUpperCase();
+  if (!normalizedRegime) {
+    errors.regime = 'Campo obrigatório.';
+  } else if (!['PRIVATIVO', 'REGULAR'].includes(normalizedRegime)) {
+    errors.regime = 'Use PRIVATIVO ou REGULAR.';
   }
 
   return errors;
@@ -235,6 +252,7 @@ export default function ReservationDetailsModal({ reservation, open, onClose, on
       ident: sanitized.ident || null,
       status: sanitized.status || null,
       nome_pax: sanitized.passageiro || null,
+      regime: sanitized.regime || null,
     } satisfies UpdateReservationPayload;
 
     setIsSaving(true);
@@ -260,6 +278,7 @@ export default function ReservationDetailsModal({ reservation, open, onClose, on
 
   const detailFields: DetailField[] = [
     { key: 'operadora', label: 'OPERADORA', value: reservation.operadora ?? '-' },
+    { key: 'regime', label: 'REGIME', value: formatRegimeLabel(reservation.regime) },
     { key: 'numeroReserva', label: 'Nº RESERVA', value: reservation.numero_reserva ?? '-' },
     { key: 'dataChegada', label: 'DATA CHEGADA', value: formatDate(reservation.data_chegada) },
     { key: 'dataSaida', label: 'DATA SAÍDA', value: formatDate(reservation.data_saida) },

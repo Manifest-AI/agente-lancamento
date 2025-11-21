@@ -321,7 +321,7 @@ export function ReservaFormFields({
           aria-errormessage={errors.regime ? `${idPrefix}-regime-error` : undefined}
         >
           <option value="">Selecione</option>
-          <option value="Privativo">Privativo</option>
+          <option value="PRIVATIVO">Privativo</option>
           <option value="REGULAR">REGULAR</option>
         </select>
         {errors.regime ? (
