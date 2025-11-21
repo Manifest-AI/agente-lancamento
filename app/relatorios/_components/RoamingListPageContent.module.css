@@ -1,0 +1,54 @@
+.roamingLayout {
+  width: 100%;
+  max-width: 100%;
+}
+
+.roamingWrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: visible;
+}
+
+.roamingTable {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.roamingTable th,
+.roamingTable td {
+  padding: 4px 8px;
+}
+
+.roamingNowrap {
+  white-space: nowrap;
+}
+
+.roamingWrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+@media print {
+  @page {
+    size: landscape;
+  }
+
+  .roamingLayout {
+    padding: 8px 16px;
+  }
+
+  .roamingWrapper {
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .roamingTable {
+    width: 100%;
+    font-size: 0.75rem;
+  }
+
+  .printHidden {
+    display: none !important;
+  }
+}
