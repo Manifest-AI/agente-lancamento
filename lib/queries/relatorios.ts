@@ -58,7 +58,7 @@ export async function fetchRoamingList({
     return 2;
   };
 
-  const parseDateTime = (date: string | null, time: string | null) => {
+  const parseDateTime = (date: string | null | undefined, time: string | null | undefined) => {
     if (!date) return null;
     const timeValue = time?.trim() || '00:00';
     const parsed = Date.parse(`${date}T${timeValue}`);
