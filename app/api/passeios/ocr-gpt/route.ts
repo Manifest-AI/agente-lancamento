@@ -1,7 +1,10 @@
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type {
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionMessageParam,
+} from 'openai/resources/chat/completions';
 import type { ExtractedPasseio } from '@/types/ocr-gpt';
 import { normalizeExtractedPasseio, type NormalizedPasseio } from '@/lib/passeios/normalizePasseio';
 import { PROMPT_PASSEIOS_SYSTEM } from '@/lib/passeios/prompt';
@@ -58,12 +61,15 @@ async function fileToDataURL(file: File) {
   return `data:${mimeType};base64,${base64}`;
 }
 
-async function callModelWithTimeout(openai: OpenAI, payload: Parameters<OpenAI['chat']['completions']['create']>[0]) {
+async function callModelWithTimeout(
+  openai: OpenAI,
+  payload: ChatCompletionCreateParamsNonStreaming,
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
 
   try {
-    return await openai.chat.completions.create({ ...payload, signal: controller.signal });
+    return await openai.chat.completions.create({ ...payload, stream: false }, { signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
