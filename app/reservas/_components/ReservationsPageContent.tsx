@@ -156,8 +156,12 @@ export default function ReservationsPageContent() {
 
   const page = useMemo(() => parseNumber(searchParams.get('page'), 1), [searchParams]);
   const filters = useMemo(() => parseFiltersFromSearchParams(searchParams), [searchParams]);
-  const viewMode = useMemo(() => parseViewMode(searchParams.get('mode')), [searchParams]);
+  const [viewMode, setViewMode] = useState<ReservationViewMode>(() => parseViewMode(searchParams.get('mode')));
   const sort = useMemo(() => parseSort(searchParams.get('sort'), viewMode), [searchParams, viewMode]);
+
+  useEffect(() => {
+    setViewMode(parseViewMode(searchParams.get('mode')));
+  }, [searchParams]);
 
   const handleNavigate = useCallback(
     (next: { page?: number; filters?: ReservationFilters; sort?: ReservationsViewSort; viewMode?: ReservationViewMode }) => {
@@ -306,6 +310,7 @@ export default function ReservationsPageContent() {
 
   const handleViewModeChange = useCallback(
     (mode: ReservationViewMode) => {
+      setViewMode(mode);
       handleNavigate({ page: 1, sort: DEFAULT_SORT, viewMode: mode });
     },
     [handleNavigate],
