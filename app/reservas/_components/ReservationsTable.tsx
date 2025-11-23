@@ -18,6 +18,7 @@ import {
   getStatusStyle,
   type StatusVariant,
 } from './reservationUtils';
+import styles from './ReservationsTable.module.css';
 
 type ReservationsTableProps = {
   reservations: ReservationTableRecord[];
@@ -40,6 +41,7 @@ type ColumnConfig = {
   field?: ReservationsViewSortField;
   render: (record: ReservationTableRecord) => ReactNode;
   className?: string;
+  headerClassName?: string;
 };
 
 function SortButton({
@@ -74,208 +76,224 @@ const columnDefinitions: Record<ReservationViewMode, ColumnConfig[]> = {
   traslados: [
     {
       key: 'operadora',
-      label: 'OPERADORA',
-      render: (record) => (
-        <span className="block truncate" title={record.operadora ?? '-'}>
-          {record.operadora ?? '-'}
-        </span>
-      ),
-    },
-    {
-      key: 'regime',
-      label: 'REGIME',
-      render: (record) => formatRegimeLabel(record.regime),
-    },
-    {
-      key: 'numero_reserva',
-      label: 'Nº RESERVA',
-      render: (record) => record.numeroReserva ?? '-',
+      label: 'Operadora',
+      render: (record) => <span className={styles.wrap}>{record.operadora ?? '-'}</span>,
+      className: styles.wrap,
     },
     {
       key: 'passageiro',
-      label: 'PASSAGEIRO',
+      label: 'Reserva / Passageiro',
       field: 'nome_pax',
-      render: (record) => record.nomePax ?? '-',
+      render: (record) => (
+        <div className={`${styles.wrap} space-y-1`}>
+          <p className="font-semibold text-slate-800">{record.numeroReserva ?? '-'}</p>
+          <p className="text-sm text-slate-600">{record.nomePax ?? '-'}</p>
+        </div>
+      ),
+      className: styles.wrap,
+    },
+    {
+      key: 'ident',
+      label: 'IDENT',
+      render: (record) => <span className={styles.nowrap}>{record.ident ?? '-'}</span>,
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
     {
       key: 'hotel',
-      label: 'HOTEL',
-      render: (record) => (
-        <span className="block truncate" title={record.hotel ?? '-'}>
-          {record.hotel ?? '-'}
-        </span>
-      ),
+      label: 'Hotel',
+      render: (record) => <span className={styles.wrap}>{record.hotel ?? '-'}</span>,
+      className: styles.wrap,
     },
     {
       key: 'data_chegada',
-      label: 'DATA CHEGADA',
+      label: 'Chegada',
       field: 'data_chegada',
-      render: (record) => formatDate(record.dataChegada),
+      render: (record) => <span className={styles.nowrap}>{formatDate(record.dataChegada)}</span>,
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
     {
       key: 'data_saida',
-      label: 'DATA SAÍDA',
+      label: 'Saída',
       field: 'data_saida',
-      render: (record) => formatDate(record.dataSaida),
+      render: (record) => <span className={styles.nowrap}>{formatDate(record.dataSaida)}</span>,
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
+    },
+    {
+      key: 'regime',
+      label: 'Regime',
+      render: (record) => formatRegimeLabel(record.regime),
+      className: styles.nowrap,
     },
     {
       key: 'status',
-      label: 'STATUS',
+      label: 'Status',
       field: 'status',
       render: (record) => (
         <span
-          className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
+          className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
             (record.status as StatusVariant) ?? 'Pendente',
           )}`}
         >
           {record.status ?? 'Sem status'}
         </span>
       ),
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
   ],
   passeios: [
     {
       key: 'numero_reserva',
-      label: 'Nº RESERVA',
-      render: (record) => record.numeroReserva ?? '-',
+      label: 'Nº Reserva',
+      render: (record) => (
+        <div className={`${styles.wrap} space-y-1`}>
+          <p className="font-semibold text-slate-800">{record.numeroReserva ?? '-'}</p>
+          {record.idExterno ? <p className={styles.muted}>ID externo: {record.idExterno}</p> : null}
+        </div>
+      ),
+      className: styles.wrap,
     },
     {
       key: 'tipo_passeio',
-      label: 'TIPO DE PASSEIO',
+      label: 'Passeio',
       field: 'tipo_passeio',
-      render: (record) => formatPasseioTipoLabel(record.tipoPasseio),
+      render: (record) => (
+        <div className={`${styles.wrap} space-y-1`}>
+          <p className="font-semibold text-slate-800">{formatPasseioTipoLabel(record.tipoPasseio)}</p>
+          <p className="text-sm text-slate-600">{record.descricaoPasseio ?? '—'}</p>
+        </div>
+      ),
+      className: styles.wrap,
     },
     {
       key: 'data_passeio',
-      label: 'DATA DO PASSEIO',
+      label: 'Data do passeio',
       field: 'data_passeio',
-      render: (record) => formatDate(record.dataPasseio),
-    },
-    {
-      key: 'regime',
-      label: 'REGIME',
-      render: (record) => formatRegimeLabel(record.regime),
+      render: (record) => <span className={styles.nowrap}>{formatDate(record.dataPasseio)}</span>,
+      className: styles.nowrap,
     },
     {
       key: 'hotel',
-      label: 'HOTEL',
-      render: (record) => (
-        <span className="block truncate" title={record.hotel ?? '-'}>
-          {record.hotel ?? '-'}
-        </span>
-      ),
+      label: 'Hotel',
+      render: (record) => <span className={styles.wrap}>{record.hotel ?? '-'}</span>,
+      className: styles.wrap,
+    },
+    {
+      key: 'regime',
+      label: 'Regime',
+      render: (record) => formatRegimeLabel(record.regime),
+      className: styles.nowrap,
     },
     {
       key: 'passageiros',
-      label: 'PASSAGEIRO',
-      render: (record) => formatPasseioPassengerSummary(record.passageiros),
-    },
-    {
-      key: 'descricao',
-      label: 'DESCRIÇÃO',
-      render: (record) => (
-        <span className="block truncate" title={record.descricaoPasseio ?? '-'}>
-          {record.descricaoPasseio ?? '-'}
-        </span>
-      ),
+      label: 'Passageiros',
+      render: (record) => <span className={styles.wrap}>{formatPasseioPassengerSummary(record.passageiros)}</span>,
+      className: styles.wrap,
     },
   ],
   ambos: [
     {
       key: 'tipo',
-      label: 'TIPO',
+      label: 'Tipo',
       render: (record) => {
         const variant = record.source === 'ambos' ? 'Traslado + Passeio' : record.source === 'traslado' ? 'Traslado' : 'Passeio';
-        const styles =
+        const badgeStyle =
           record.source === 'ambos'
             ? 'bg-indigo-100 text-indigo-700'
             : record.source === 'traslado'
               ? 'bg-sky-100 text-sky-700'
               : 'bg-amber-100 text-amber-700';
 
-        return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${styles}`}>{variant}</span>;
+        return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeStyle}`}>{variant}</span>;
       },
-    },
-    {
-      key: 'operadora',
-      label: 'OPERADORA',
-      render: (record) => (
-        <span className="block truncate" title={record.operadora ?? '-'}>
-          {record.operadora ?? '-'}
-        </span>
-      ),
-    },
-    {
-      key: 'regime',
-      label: 'REGIME',
-      render: (record) => formatRegimeLabel(record.regime),
-    },
-    {
-      key: 'numero_reserva',
-      label: 'Nº RESERVA',
-      render: (record) => record.numeroReserva ?? '-',
+      className: styles.nowrap,
     },
     {
       key: 'passageiro',
-      label: 'PASSAGEIRO',
+      label: 'Reserva / Passageiro',
       field: 'nome_pax',
-      render: (record) => record.nomePax ?? formatPasseioPassengerSummary(record.passageiros),
+      render: (record) => (
+        <div className={`${styles.wrap} space-y-1`}>
+          <p className="font-semibold text-slate-800">{record.numeroReserva ?? '-'}</p>
+          <p className="text-sm text-slate-600">
+            {record.nomePax ?? formatPasseioPassengerSummary(record.passageiros)}
+          </p>
+        </div>
+      ),
+      className: styles.wrap,
+    },
+    {
+      key: 'operadora',
+      label: 'Operadora',
+      render: (record) => <span className={styles.wrap}>{record.operadora ?? '-'}</span>,
+      className: styles.wrap,
     },
     {
       key: 'hotel',
-      label: 'HOTEL',
-      render: (record) => (
-        <span className="block truncate" title={record.hotel ?? '-'}>
-          {record.hotel ?? '-'}
-        </span>
-      ),
+      label: 'Hotel',
+      render: (record) => <span className={styles.wrap}>{record.hotel ?? '-'}</span>,
+      className: styles.wrap,
     },
     {
       key: 'data_chegada',
-      label: 'DATA CHEGADA',
+      label: 'Chegada',
       field: 'data_chegada',
-      render: (record) => formatDate(record.dataChegada),
+      render: (record) => <span className={styles.nowrap}>{formatDate(record.dataChegada)}</span>,
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
     {
       key: 'data_saida',
-      label: 'DATA SAÍDA',
+      label: 'Saída',
       field: 'data_saida',
-      render: (record) => formatDate(record.dataSaida),
+      render: (record) => <span className={styles.nowrap}>{formatDate(record.dataSaida)}</span>,
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
     {
       key: 'data_passeio',
-      label: 'DATA PASSEIO',
+      label: 'Data passeio',
       field: 'data_passeio',
-      render: (record) => formatDate(record.dataPasseio),
+      render: (record) => <span className={styles.nowrap}>{formatDate(record.dataPasseio)}</span>,
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
     {
       key: 'tipo_passeio',
-      label: 'TIPO PASSEIO',
+      label: 'Passeio',
       field: 'tipo_passeio',
-      render: (record) => formatPasseioTipoLabel(record.tipoPasseio),
+      render: (record) => (
+        <div className={`${styles.wrap} space-y-1`}>
+          <p className="font-semibold text-slate-800">{formatPasseioTipoLabel(record.tipoPasseio)}</p>
+          <p className="text-sm text-slate-600">{record.descricaoPasseio ?? '—'}</p>
+        </div>
+      ),
+      className: styles.wrap,
     },
     {
-      key: 'descricao',
-      label: 'DESCRIÇÃO PASSEIO',
-      render: (record) => (
-        <span className="block truncate" title={record.descricaoPasseio ?? '-'}>
-          {record.descricaoPasseio ?? '-'}
-        </span>
-      ),
+      key: 'regime',
+      label: 'Regime',
+      render: (record) => formatRegimeLabel(record.regime),
+      className: styles.nowrap,
     },
     {
       key: 'status',
-      label: 'STATUS',
+      label: 'Status',
       field: 'status',
       render: (record) => (
         <span
-          className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
+          className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
             (record.status as StatusVariant) ?? 'Pendente',
           )}`}
         >
           {record.status ?? 'Sem status'}
         </span>
       ),
+      className: styles.nowrap,
+      headerClassName: 'whitespace-nowrap',
     },
   ],
 };
@@ -295,7 +313,10 @@ function TableHead({
     <thead className="bg-slate-50">
       <tr>
         {columns.map((column) => (
-          <th key={column.key} className="px-4 py-3 text-left align-middle text-xs uppercase tracking-wide text-slate-500">
+          <th
+            key={column.key}
+            className={`px-3 py-3 text-left align-middle text-xs uppercase tracking-wide text-slate-500 ${column.headerClassName ?? ''}`}
+          >
             {column.field ? (
               <SortButton label={column.label} field={column.field} currentSort={sort} onClick={onSortChange} />
             ) : (
@@ -303,7 +324,7 @@ function TableHead({
             )}
           </th>
         ))}
-        <th className="px-4 py-3 text-right text-xs uppercase tracking-wide text-slate-500">Ações</th>
+        <th className="px-3 py-3 text-right text-xs uppercase tracking-wide text-slate-500">Ações</th>
       </tr>
     </thead>
   );
@@ -313,7 +334,7 @@ function SkeletonRow({ columnsCount }: { columnsCount: number }) {
   return (
     <tr className="animate-pulse border-b border-slate-100 last:border-0">
       {Array.from({ length: columnsCount }).map((_, index) => (
-        <td key={index} className="px-4 py-4">
+        <td key={index} className="px-3 py-4">
           <div className="h-4 w-full rounded bg-slate-200" />
         </td>
       ))}
@@ -349,7 +370,7 @@ function renderActions(
   }
 
   return (
-    <div className="flex justify-end gap-2 text-xs font-semibold">
+    <div className={`${styles.actions} text-xs font-semibold`}>
       <button
         type="button"
         onClick={() => onView(record.reservation as ReservationRecord)}
@@ -409,11 +430,11 @@ export default function ReservationsTable({
         {reservations.map((reservation) => (
           <tr key={reservation.id} className="transition hover:bg-slate-50">
             {columns.map((column) => (
-              <td key={column.key} className="px-4 py-3 align-middle">
+              <td key={column.key} className={`px-3 py-3 align-top ${column.className ?? ''}`}>
                 {column.render(reservation)}
               </td>
             ))}
-            <td className="px-4 py-3 text-right">
+            <td className="px-3 py-3 text-right">
               {renderActions(reservation, (item) => setSelectedReservation(item), onDelete)}
             </td>
           </tr>
@@ -430,9 +451,9 @@ export default function ReservationsTable({
   };
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200">
+    <div className={styles.tableCard}>
+      <div className={styles.tableWrapper}>
+        <table className={`${styles.table} divide-y divide-slate-200`}>
           <TableHead sort={sort} onSortChange={onSortChange} viewMode={viewMode} />
           {content}
         </table>

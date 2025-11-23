@@ -31,6 +31,7 @@ export type ReservationTableRecord = {
   regime?: string | null;
   numeroReserva?: string | null;
   nomePax?: string | null;
+  ident?: string | null;
   hotel?: string | null;
   dataChegada?: string | null;
   dataSaida?: string | null;
@@ -83,6 +84,7 @@ function mapReservationToTableRecord(reservation: ReservationRecord): Reservatio
     regime: reservation.regime,
     numeroReserva: reservation.numero_reserva ?? reservation.codigo_reserva ?? null,
     nomePax: reservation.nome_pax ?? reservation.passageiro ?? null,
+    ident: reservation.ident,
     hotel: reservation.hotel,
     dataChegada: reservation.data_chegada ?? reservation.data_voo_ida ?? null,
     dataSaida: reservation.data_saida ?? reservation.data_voo_volta ?? null,
