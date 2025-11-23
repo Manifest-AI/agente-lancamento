@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import type { ReservationRecord, ReservationsSort, ReservationsSortField } from '@/lib/queries/reservas';
+import type { ReservationListItem, ReservationRecord, ReservationsSort, ReservationsSortField } from '@/lib/queries/reservas';
 import ReservationDetailsModal from './ReservationDetailsModal';
 import { formatDate, formatRegimeLabel, getStatusStyle, type StatusVariant } from './reservationUtils';
 
 type ReservationsTableProps = {
-  reservations: ReservationRecord[];
+  reservations: ReservationListItem[];
   isLoading: boolean;
   page: number;
   pageSize: number;
@@ -60,6 +60,25 @@ const headerCells: { label: string; field?: ReservationsSortField }[] = [
   { label: 'DATA SAÍDA', field: 'data_saida' },
   { label: 'STATUS', field: 'status' },
 ];
+
+function buildItemsLabel(reservation: ReservationListItem) {
+  const passeioCount = reservation.itens.filter((item) => item.tipo === 'PASSEIO').length;
+  const hasReserva = reservation.itens.some((item) => item.tipo === 'RESERVA');
+
+  if (hasReserva && passeioCount > 0) {
+    return `Traslado + ${passeioCount} passeio${passeioCount > 1 ? 's' : ''}`;
+  }
+
+  if (hasReserva) {
+    return 'Traslado';
+  }
+
+  if (passeioCount > 0) {
+    return `${passeioCount} passeio${passeioCount > 1 ? 's' : ''}`;
+  }
+
+  return null;
+}
 
 function TableHead({ sort, onSortChange }: { sort: ReservationsSort; onSortChange: (field: ReservationsSortField) => void }) {
   return (
@@ -146,60 +165,77 @@ export default function ReservationsTable({
 
     return (
       <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-        {reservations.map((reservation) => (
-          <tr key={reservation.id} className="transition hover:bg-slate-50">
-            <td className="max-w-[160px] px-4 py-3">
-              <span className="block truncate" title={reservation.operadora ?? '-'}>
-                {reservation.operadora ?? '-'}
-              </span>
-            </td>
-            <td className="px-4 py-3 text-sm text-slate-700" title={formatRegimeLabel(reservation.regime)}>
-              {formatRegimeLabel(reservation.regime)}
-            </td>
-            <td className="px-4 py-3 text-sm text-slate-700" title={reservation.numero_reserva ?? '-'}>
-              {reservation.numero_reserva ?? '-'}
-            </td>
-            <td className="max-w-[200px] px-4 py-3">
-              <span className="block truncate" title={reservation.nome_pax ?? '-'}>
-                {reservation.nome_pax ?? '-'}
-              </span>
-            </td>
-            <td className="max-w-[180px] px-4 py-3">
-              <span className="block truncate" title={reservation.hotel ?? '-'}>
-                {reservation.hotel ?? '-'}
-              </span>
-            </td>
-            <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_chegada)}</td>
-            <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_saida)}</td>
-            <td className="px-4 py-3">
-              <span
-                className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
-                  (reservation.status as StatusVariant) ?? 'Pendente',
-                )}`}
-              >
-                {reservation.status ?? 'Sem status'}
-              </span>
-            </td>
-            <td className="px-4 py-3 text-right">
-              <div className="flex justify-end gap-2 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setSelectedReservation(reservation)}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
+        {reservations.map((reservation) => {
+          const reservationRecord = reservation.itens.find(
+            (item) => item.tipo === 'RESERVA',
+          ) as ReservationRecord | undefined;
+          const itemsLabel = buildItemsLabel(reservation);
+          const numeroReserva = reservation.numero_reserva ?? reservation.id_externo;
+
+          return (
+            <tr key={reservation.id} className="transition hover:bg-slate-50">
+              <td className="max-w-[160px] px-4 py-3">
+                <span className="block truncate" title={reservation.operadora ?? '-'}>
+                  {reservation.operadora ?? '-'}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-sm text-slate-700" title={formatRegimeLabel(reservation.regime)}>
+                {formatRegimeLabel(reservation.regime)}
+              </td>
+              <td className="px-4 py-3 text-sm text-slate-700" title={numeroReserva ?? '-'}>
+                <div className="flex flex-col gap-1">
+                  <span>{numeroReserva ?? '-'}</span>
+                  {itemsLabel ? (
+                    <span className="inline-flex max-w-[180px] items-center justify-start rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                      {itemsLabel}
+                    </span>
+                  ) : null}
+                </div>
+              </td>
+              <td className="max-w-[200px] px-4 py-3">
+                <span className="block truncate" title={reservation.nome_pax ?? '-'}>
+                  {reservation.nome_pax ?? '-'}
+                </span>
+              </td>
+              <td className="max-w-[180px] px-4 py-3">
+                <span className="block truncate" title={reservation.hotel ?? '-'}>
+                  {reservation.hotel ?? '-'}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_chegada)}</td>
+              <td className="px-4 py-3 text-sm text-slate-600">{formatDate(reservation.data_saida)}</td>
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex min-w-[120px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
+                    (reservation.status as StatusVariant) ?? 'Pendente',
+                  )}`}
                 >
-                  Ver detalhes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(reservation.id)}
-                  className="rounded-lg border border-rose-200 px-3 py-1.5 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
-                >
-                  Excluir
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
+                  {reservation.status ?? 'Sem status'}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-right">
+                <div className="flex justify-end gap-2 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => (reservationRecord ? setSelectedReservation(reservationRecord) : null)}
+                    disabled={!reservationRecord}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Ver detalhes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reservationRecord && onDelete(reservationRecord.id)}
+                    disabled={!reservationRecord}
+                    className="rounded-lg border border-rose-200 px-3 py-1.5 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     );
   }, [isLoading, reservations, onDelete]);
