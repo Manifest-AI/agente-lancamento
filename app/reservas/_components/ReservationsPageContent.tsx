@@ -8,7 +8,6 @@ import {
   deleteReservation,
   fetchReservationOptions,
   fetchReservations,
-  type ReservationListItem,
   type ReservationFilters,
   type ReservationOptions,
   type ReservationRecord,
@@ -121,7 +120,7 @@ export default function ReservationsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [reservations, setReservations] = useState<ReservationListItem[]>([]);
+  const [reservations, setReservations] = useState<ReservationRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -246,40 +245,7 @@ export default function ReservationsPageContent() {
   }, [refreshData, selectedReservationId, user]);
 
   const handleReservationUpdate = useCallback((updated: ReservationRecord) => {
-    setReservations((previous) =>
-      previous.map((reservation) => {
-        const hasReservation = reservation.itens.some(
-          (item) => item.tipo === 'RESERVA' && item.id === updated.id,
-        );
-
-        if (!hasReservation) {
-          return reservation;
-        }
-
-        const updatedItems = reservation.itens.map((item) =>
-          item.tipo === 'RESERVA' && item.id === updated.id ? { ...item, ...updated } : item,
-        );
-
-        return {
-          ...reservation,
-          id: reservation.id.startsWith('passeio-') ? updated.id : reservation.id,
-          id_externo: updated.id_externo ?? reservation.id_externo,
-          operadora: updated.operadora,
-          regime: updated.regime ?? reservation.regime,
-          numero_reserva: updated.numero_reserva ?? reservation.numero_reserva,
-          hotel: updated.hotel ?? reservation.hotel,
-          data_chegada: updated.data_chegada ?? reservation.data_chegada,
-          data_saida: updated.data_saida ?? reservation.data_saida,
-          status: updated.status ?? reservation.status,
-          nome_pax: updated.nome_pax ?? updated.passageiro ?? reservation.nome_pax,
-          passageiro: updated.passageiro ?? reservation.passageiro,
-          ident: updated.ident ?? reservation.ident,
-          created_at: updated.created_at ?? reservation.created_at,
-          itens: updatedItems,
-          isPasseioSolo: false,
-        };
-      }),
-    );
+    setReservations((previous) => previous.map((reservation) => (reservation.id === updated.id ? updated : reservation)));
   }, []);
 
   const handlePasseioSaved = useCallback(
