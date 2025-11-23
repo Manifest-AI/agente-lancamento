@@ -11,6 +11,9 @@ type PasseioRequestBody = {
   data_passeio: string;
   tipo_passeio: string;
   descricao?: string | null;
+  hotel?: string | null;
+  regime?: string | null;
+  passageiros?: { nome?: string | null; tipo?: string | null }[];
   reserva_id?: string | null;
 };
 
@@ -38,6 +41,30 @@ function sanitizeString(value?: string | null) {
   return value?.trim() ?? '';
 }
 
+function normalizeRegime(value?: string | null) {
+  const normalized = sanitizeString(value).toUpperCase();
+  return normalized === 'PRIVATIVO' || normalized === 'REGULAR' ? normalized : '';
+}
+
+function normalizePassengers(passageiros?: PasseioRequestBody['passageiros']) {
+  if (!Array.isArray(passageiros)) {
+    return [] as { nome: string; tipo: 'ADT' | 'CHD' | 'INF' }[];
+  }
+
+  return passageiros
+    .map((passageiro) => ({
+      nome: sanitizeString(passageiro?.nome).toUpperCase(),
+      tipo: sanitizeString(passageiro?.tipo).toUpperCase() as 'ADT' | 'CHD' | 'INF' | '',
+    }))
+    .filter((passageiro) =>
+      Boolean(
+        passageiro.nome &&
+          (passageiro.tipo === 'ADT' || passageiro.tipo === 'CHD' || passageiro.tipo === 'INF'),
+      ),
+    )
+    .map((passageiro) => ({ nome: passageiro.nome, tipo: passageiro.tipo }));
+}
+
 function assertPasseioType(value: string): PasseioTipo {
   const normalized = normalizePasseioType(value);
   if (!normalized || normalized === UNKNOWN_PASSEIO_TYPE) {
@@ -58,10 +85,21 @@ export async function POST(request: Request) {
 
   const idExterno = sanitizeString(body.id_externo);
   const tipoPasseioRaw = sanitizeString(body.tipo_passeio);
-  const descricao = sanitizeString(body.descricao ?? null) || null;
+  const descricao = sanitizeString(body.descricao ?? null);
+  const hotel = sanitizeString(body.hotel ?? null);
+  const regime = normalizeRegime(body.regime ?? null);
+  const passageiros = normalizePassengers(body.passageiros);
   const reservaId = sanitizeString(body.reserva_id ?? null) || null;
 
-  if (!idExterno || !body.data_passeio || !tipoPasseioRaw) {
+  if (
+    !idExterno ||
+    !body.data_passeio ||
+    !tipoPasseioRaw ||
+    !descricao ||
+    !hotel ||
+    !regime ||
+    passageiros.length === 0
+  ) {
     return makeError(400, 'Campos obrigatórios ausentes.', requestId);
   }
 
@@ -88,6 +126,9 @@ export async function POST(request: Request) {
       tipo_passeio: tipoPasseio,
       descricao,
       data_passeio: dataPasseio,
+      hotel,
+      regime,
+      passageiros,
     })
     .select('*')
     .single();

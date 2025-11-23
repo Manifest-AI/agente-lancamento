@@ -18,6 +18,11 @@ type PasseioPassengerDraft = {
   tipo: 'ADT' | 'CHD' | 'INF' | '';
 };
 
+type PasseioPassengerPayload = {
+  nome: string;
+  tipo: 'ADT' | 'CHD' | 'INF';
+};
+
 type PasseioPassengerErrors = {
   nome?: string;
   tipo?: string;
@@ -33,7 +38,10 @@ type PasseioFormState = {
   passageiros: PasseioPassengerDraft[];
 };
 
-type PasseioFormErrors = Partial<Omit<PasseioFormState, 'passageiros'>> & { passageiros?: PasseioPassengerErrors[] };
+type PasseioFormErrors = Partial<Omit<PasseioFormState, 'passageiros'>> & {
+  passageiros?: PasseioPassengerErrors[];
+  passageirosMessage?: string;
+};
 
 type ExtractionStatus = 'pending' | 'processing' | 'success' | 'incomplete' | 'error';
 
@@ -93,6 +101,8 @@ const EMPTY_DRAFT: PasseioFormState = {
   regime: '',
   passageiros: [],
 };
+
+const VALID_PASSEIO_REGIMES = ['PRIVATIVO', 'REGULAR'];
 
 function createId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -169,20 +179,46 @@ function validateForm(state: PasseioFormState): PasseioFormErrors {
     errors.tipo_passeio = 'Tipo inválido';
   }
 
+  if (!state.descricao.trim()) {
+    errors.descricao = 'Campo obrigatório';
+  }
+
+  if (!state.hotel.trim()) {
+    errors.hotel = 'Campo obrigatório';
+  }
+
+  if (!state.regime.trim()) {
+    errors.regime = 'Selecione o regime';
+  } else if (!VALID_PASSEIO_REGIMES.includes(state.regime.toUpperCase())) {
+    errors.regime = 'Regime inválido';
+  }
+
+  if (state.passageiros.length === 0) {
+    errors.passageirosMessage = 'Informe pelo menos 1 passageiro com nome e tipo.';
+  }
+
   if (state.passageiros.length) {
     const passengerErrors = state.passageiros.map((passageiro) => {
       const passengerErrors: PasseioPassengerErrors = {};
-      if (passageiro.nome && !passageiro.tipo) {
-        passengerErrors.tipo = 'Informe o tipo';
-      }
-      if (passageiro.tipo && !passageiro.nome) {
+      const nome = passageiro.nome.trim();
+      const tipo = passageiro.tipo.trim();
+
+      if (!nome) {
         passengerErrors.nome = 'Informe o nome';
       }
+
+      if (!tipo) {
+        passengerErrors.tipo = 'Informe o tipo';
+      } else if (!['ADT', 'CHD', 'INF'].includes(tipo)) {
+        passengerErrors.tipo = 'Tipo inválido';
+      }
+
       return passengerErrors;
     });
 
     if (passengerErrors.some((passengerError) => passengerError.nome || passengerError.tipo)) {
       errors.passageiros = passengerErrors;
+      errors.passageirosMessage = 'Revise os passageiros com campos obrigatórios em branco.';
     }
   }
 
@@ -194,9 +230,9 @@ function hasErrors(errors: PasseioFormErrors) {
     return false;
   }
 
-  const { passageiros, ...rest } = errors;
+  const { passageiros, passageirosMessage, ...rest } = errors;
 
-  if (Object.values(rest).some(Boolean)) {
+  if (Object.values(rest).some(Boolean) || Boolean(passageirosMessage)) {
     return true;
   }
 
@@ -209,6 +245,22 @@ function hasErrors(errors: PasseioFormErrors) {
 
 function buildPassengerPlaceholder(index: number) {
   return `Passageiro ${index + 1}`;
+}
+
+function normalizePassengersForSave(passageiros: PasseioPassengerDraft[]): PasseioPassengerPayload[] {
+  return passageiros
+    .map((passageiro) => ({
+      nome: passageiro.nome.trim(),
+      tipo: (passageiro.tipo ?? '').toString().trim().toUpperCase() as PasseioPassengerDraft['tipo'],
+    }))
+    .filter(
+      (passageiro): passageiro is PasseioPassengerPayload =>
+        Boolean(
+          passageiro.nome &&
+            (passageiro.tipo === 'ADT' || passageiro.tipo === 'CHD' || passageiro.tipo === 'INF'),
+        ),
+    )
+    .map((passageiro) => ({ ...passageiro, nome: passageiro.nome.toUpperCase() }));
 }
 
 type PreviewModalProps = {
@@ -346,13 +398,15 @@ function PasseioPreviewModal({
 
             <div className="space-y-1">
               <label className="text-sm font-semibold text-slate-800" htmlFor="passeio-regime">
-                Regime
+                Regime*
               </label>
               <select
                 id="passeio-regime"
                 value={draft.regime}
                 onChange={(event) => handleInputChange('regime', event)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                className={`w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none ${
+                  errors.regime ? 'border-rose-300' : 'border-slate-200'
+                }`}
               >
                 {REGIME_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -360,38 +414,45 @@ function PasseioPreviewModal({
                   </option>
                 ))}
               </select>
+              {errors.regime ? <p className="text-xs font-medium text-rose-600">{errors.regime}</p> : null}
             </div>
 
             <div className="space-y-1">
               <label className="text-sm font-semibold text-slate-800" htmlFor="passeio-hotel">
-                Hotel
+                Hotel*
               </label>
               <input
                 id="passeio-hotel"
                 value={draft.hotel}
                 onChange={(event) => handleInputChange('hotel', event)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                className={`w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none ${
+                  errors.hotel ? 'border-rose-300' : 'border-slate-200'
+                }`}
                 placeholder="Nome do hotel"
               />
+              {errors.hotel ? <p className="text-xs font-medium text-rose-600">{errors.hotel}</p> : null}
             </div>
           </div>
 
           <div className="space-y-1">
             <label className="text-sm font-semibold text-slate-800" htmlFor="passeio-descricao">
-              Descrição
+              Descrição*
             </label>
             <textarea
               id="passeio-descricao"
               value={draft.descricao}
               onChange={(event) => handleInputChange('descricao', event)}
-              className="min-h-[90px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+              className={`min-h-[90px] w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none ${
+                errors.descricao ? 'border-rose-300' : 'border-slate-200'
+              }`}
               placeholder="Nome do passeio e detalhes relevantes"
             />
+            {errors.descricao ? <p className="text-xs font-medium text-rose-600">{errors.descricao}</p> : null}
           </div>
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Passageiros</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Passageiros*</p>
               <button
                 type="button"
                 onClick={handleAddPassenger}
@@ -400,6 +461,10 @@ function PasseioPreviewModal({
                 <Upload className="h-4 w-4" /> Adicionar passageiro
               </button>
             </div>
+
+            {errors.passageirosMessage ? (
+              <p className="text-sm font-semibold text-rose-600">{errors.passageirosMessage}</p>
+            ) : null}
 
             {draft.passageiros.length === 0 ? (
               <p className="text-sm text-slate-600">Nenhum passageiro listado.</p>
@@ -807,7 +872,11 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
       id_externo: item.draft.id_externo.trim(),
       tipo_passeio: item.draft.tipo_passeio.trim(),
       data_passeio: toIsoDate(item.draft.data_passeio)?.trim() ?? '',
-      descricao: item.draft.descricao.trim() || null,
+      descricao: item.draft.descricao.trim(),
+      hotel: item.draft.hotel.trim(),
+      regime: item.draft.regime.trim(),
+      passageiros: normalizePassengersForSave(item.draft.passageiros),
+      reserva_id: null,
     };
 
     updateItem(item.id, (current) => ({ ...current, isSaving: true, errorMessage: null }));

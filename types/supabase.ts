@@ -138,28 +138,37 @@ export type Database = {
           created_at: string;
           data_passeio: string;
           descricao: string | null;
+          hotel: string | null;
           id: string;
           id_externo: string;
+          passageiros: Json | null;
           reserva_id: string | null;
           tipo_passeio: Database['public']['Enums']['passeio_tipo'];
+          regime: string | null;
         };
         Insert: {
           created_at?: string;
           data_passeio: string;
           descricao?: string | null;
+          hotel?: string | null;
           id?: string;
           id_externo: string;
+          passageiros?: Json | null;
           reserva_id?: string | null;
           tipo_passeio: Database['public']['Enums']['passeio_tipo'];
+          regime?: string | null;
         };
         Update: {
           created_at?: string;
           data_passeio?: string;
           descricao?: string | null;
+          hotel?: string | null;
           id?: string;
           id_externo?: string;
+          passageiros?: Json | null;
           reserva_id?: string | null;
           tipo_passeio?: Database['public']['Enums']['passeio_tipo'];
+          regime?: string | null;
         };
         Relationships: [
           {

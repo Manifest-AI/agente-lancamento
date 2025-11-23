@@ -8,7 +8,10 @@ export type CreatePasseioInput = {
   reserva_id?: string | null;
   id_externo: string;
   tipo_passeio: Passeio['tipo_passeio'];
-  descricao?: string | null;
+  descricao: string;
+  hotel: string;
+  regime: string;
+  passageiros: Passeio['passageiros'];
   data_passeio: string;
 };
 
@@ -50,7 +53,10 @@ export async function createPasseio(input: CreatePasseioInput): Promise<Passeio>
       reserva_id: input.reserva_id ?? null,
       id_externo: input.id_externo,
       tipo_passeio: input.tipo_passeio,
-      descricao: input.descricao ?? null,
+      descricao: input.descricao,
+      hotel: input.hotel,
+      regime: input.regime,
+      passageiros: input.passageiros,
       data_passeio: input.data_passeio,
     })
     .select('*')
