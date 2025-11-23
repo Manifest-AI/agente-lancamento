@@ -73,6 +73,15 @@ function assertPasseioType(value: string): PasseioTipo {
   return normalized;
 }
 
+function isValidUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isSupabaseValidationError(code?: string) {
+  const validationCodes = new Set(['22P02', '23502', '23514', 'PGRST302', 'PGRST303', 'PGRST304']);
+  return code ? validationCodes.has(code) : false;
+}
+
 export async function POST(request: Request) {
   const requestId = randomUUID();
   let body: PasseioRequestBody;
@@ -90,6 +99,10 @@ export async function POST(request: Request) {
   const regime = normalizeRegime(body.regime ?? null);
   const passageiros = normalizePassengers(body.passageiros);
   const reservaId = sanitizeString(body.reserva_id ?? null) || null;
+
+  if (reservaId && !isValidUuid(reservaId)) {
+    return makeError(400, 'Reserva associada inválida.', requestId);
+  }
 
   if (
     !idExterno ||
@@ -134,7 +147,19 @@ export async function POST(request: Request) {
     .single();
 
   if (insertError) {
-    console.error({ requestId, route: 'passeios', error: insertError });
+    console.error('Erro ao inserir passeio no Supabase', {
+      requestId,
+      route: 'passeios',
+      code: insertError.code,
+      message: insertError.message,
+      details: insertError.details,
+      hint: insertError.hint,
+    });
+
+    if (isSupabaseValidationError(insertError.code)) {
+      return makeError(400, 'Dados inválidos para salvar o passeio.', requestId, insertError.message);
+    }
+
     return makeError(500, 'Não foi possível salvar o passeio.', requestId);
   }
 
