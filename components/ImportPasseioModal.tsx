@@ -170,7 +170,7 @@ function validateForm(state: PasseioFormState): PasseioFormErrors {
   }
 
   if (state.passageiros.length) {
-    errors.passageiros = state.passageiros.map((passageiro) => {
+    const passengerErrors = state.passageiros.map((passageiro) => {
       const passengerErrors: PasseioPassengerErrors = {};
       if (passageiro.nome && !passageiro.tipo) {
         passengerErrors.tipo = 'Informe o tipo';
@@ -180,19 +180,31 @@ function validateForm(state: PasseioFormState): PasseioFormErrors {
       }
       return passengerErrors;
     });
+
+    if (passengerErrors.some((passengerError) => passengerError.nome || passengerError.tipo)) {
+      errors.passageiros = passengerErrors;
+    }
   }
 
   return errors;
 }
 
 function hasErrors(errors: PasseioFormErrors) {
-  if (Object.values(errors).some(Boolean)) {
-    return true;
-  }
-  if (!errors.passageiros) {
+  if (!errors || typeof errors !== 'object') {
     return false;
   }
-  return errors.passageiros.some((passenger) => Boolean(passenger?.nome || passenger?.tipo));
+
+  const { passageiros, ...rest } = errors;
+
+  if (Object.values(rest).some(Boolean)) {
+    return true;
+  }
+
+  if (!passageiros) {
+    return false;
+  }
+
+  return passageiros.some((passenger) => Boolean(passenger?.nome || passenger?.tipo));
 }
 
 function buildPassengerPlaceholder(index: number) {
