@@ -18,6 +18,11 @@ type PasseioPassengerDraft = {
   tipo: 'ADT' | 'CHD' | 'INF' | '';
 };
 
+type PasseioPassengerErrors = {
+  nome?: string;
+  tipo?: string;
+};
+
 type PasseioFormState = {
   id_externo: string;
   data_passeio: string;
@@ -28,9 +33,7 @@ type PasseioFormState = {
   passageiros: PasseioPassengerDraft[];
 };
 
-type PasseioFormErrors = Partial<Omit<PasseioFormState, 'passageiros'>> & {
-  passageiros?: Array<Partial<PasseioPassengerDraft>>;
-};
+type PasseioFormErrors = Partial<Omit<PasseioFormState, 'passageiros'>> & { passageiros?: PasseioPassengerErrors[] };
 
 type ExtractionStatus = 'pending' | 'processing' | 'success' | 'incomplete' | 'error';
 
@@ -181,7 +184,7 @@ function validateForm(state: PasseioFormState): PasseioFormErrors {
 
   if (state.passageiros.length) {
     errors.passageiros = state.passageiros.map((passageiro) => {
-      const passengerErrors: Partial<PasseioPassengerDraft> = {};
+      const passengerErrors: PasseioPassengerErrors = {};
       if (passageiro.nome && !passageiro.tipo) {
         passengerErrors.tipo = 'Informe o tipo';
       }
@@ -230,13 +233,15 @@ function PasseioPreviewModal({ itemLabel, draft, errors, onClose, onChange }: Pr
   const handlePassengerChange = (index: number, field: keyof PasseioPassengerDraft) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const passageiros = [...draft.passageiros];
-      passageiros[index] = { ...passageiros[index], [field]: event.target.value };
+      const value = event.target.value as PasseioPassengerDraft[typeof field];
+      passageiros[index] = { ...passageiros[index], [field]: value };
       const nextDraft = { ...draft, passageiros };
       onChange(nextDraft, validateForm(nextDraft));
     };
 
   const handleAddPassenger = () => {
-    const passageiros = [...draft.passageiros, { nome: '', tipo: '' }];
+    const newPassenger: PasseioPassengerDraft = { nome: '', tipo: '' };
+    const passageiros = [...draft.passageiros, newPassenger];
     const nextDraft = { ...draft, passageiros };
     onChange(nextDraft, validateForm(nextDraft));
   };
