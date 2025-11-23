@@ -52,6 +52,7 @@ type SaveResponse = {
 
 type PasseioQueueItem = {
   id: string;
+  source: 'file' | 'text';
   file: File;
   fileName: string;
   previewUrl: string | null;
@@ -62,6 +63,7 @@ type PasseioQueueItem = {
   errorMessage?: string | null;
   model?: string | null;
   isSaving?: boolean;
+  textContent?: string | null;
 };
 
 const MAX_FILES = 10;
@@ -449,11 +451,15 @@ function PasseioPreviewModal({ itemLabel, draft, errors, onClose, onChange }: Pr
 }
 
 export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: ImportPasseioModalProps) {
+  const [activeTab, setActiveTab] = useState<'text' | 'image'>('text');
+  const [textInput, setTextInput] = useState('');
   const [fileItems, setFileItems] = useState<PasseioQueueItem[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
   const [activePreviewItemId, setActivePreviewItemId] = useState<string | null>(null);
   const [previewDraft, setPreviewDraft] = useState<PasseioFormState>(EMPTY_DRAFT);
   const [previewErrors, setPreviewErrors] = useState<PasseioFormErrors>({});
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -463,11 +469,15 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
           URL.revokeObjectURL(item.previewUrl);
         }
       });
+      setActiveTab('text');
+      setTextInput('');
       setFileItems([]);
       setUploadError(null);
+      setTextError(null);
       setActivePreviewItemId(null);
       setPreviewDraft(EMPTY_DRAFT);
       setPreviewErrors({});
+      setIsProcessing(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -488,6 +498,7 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
 
     const newItems = selected.map((file) => ({
       id: createId(),
+      source: 'file' as const,
       file,
       fileName: file.name,
       previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
@@ -533,6 +544,18 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
   };
 
   const handleExtract = async (item: PasseioQueueItem) => {
+    if (!item.file) {
+      onNotify?.({
+        type: 'error',
+        message: 'Este item foi criado a partir de texto. Use a extração por texto para reprocessar.',
+      });
+      updateItem(item.id, (current) => ({
+        ...current,
+        errorMessage: 'Extração via arquivo indisponível para itens de texto.',
+      }));
+      return;
+    }
+
     updateItem(item.id, (current) => ({ ...current, status: 'processing', errorMessage: null }));
 
     const formData = new FormData();
@@ -569,6 +592,72 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
       console.error('Erro ao extrair passeio', error);
       updateItem(item.id, (current) => ({ ...current, status: 'error', errorMessage: 'Não foi possível extrair os dados do passeio.' }));
       onNotify?.({ type: 'error', message: 'Não foi possível extrair os dados do passeio.' });
+    }
+  };
+
+  const handleExtractFromText = async () => {
+    const trimmed = textInput.trim();
+    if (trimmed.length < 20) {
+      setTextError('Texto insuficiente. Cole o conteúdo completo do voucher ou e-mail.');
+      return;
+    }
+
+    if (fileItems.length >= MAX_FILES) {
+      setTextError('Limite máximo de itens atingido. Remova algum passeio para continuar.');
+      return;
+    }
+
+    setIsProcessing(true);
+    setTextError(null);
+
+    try {
+      const response = await fetch('/api/passeios/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conteudo: trimmed }),
+      });
+
+      const payload = (await response.json()) as ExtractResponse;
+
+      if (!payload.ok || !payload.data) {
+        const message = payload.error?.message || payload.message || 'Não foi possível extrair os dados do passeio.';
+        setTextError(message);
+        onNotify?.({ type: 'error', message });
+        return;
+      }
+
+      const mapped = normalizePreview(payload.data);
+      const validationErrors = validateForm(mapped);
+      const status: ExtractionStatus = hasErrors(validationErrors) ? 'incomplete' : 'success';
+
+      const textFile = new File([trimmed], `passeio-texto-${Date.now()}.txt`, { type: 'text/plain' });
+      const newItem: PasseioQueueItem = {
+        id: createId(),
+        source: 'text',
+        file: textFile,
+        fileName: 'Conteúdo colado',
+        previewUrl: null,
+        status,
+        data: payload.data,
+        draft: mapped,
+        errors: validationErrors,
+        errorMessage: null,
+        model: payload.model ?? null,
+        isSaving: false,
+        textContent: trimmed,
+      };
+
+      setFileItems((items) => [...items, newItem]);
+      setActivePreviewItemId(newItem.id);
+      setPreviewDraft(mapped);
+      setPreviewErrors(validationErrors);
+      onNotify?.({ type: 'success', message: 'Campos importados com sucesso. Revise antes de salvar.' });
+    } catch (error) {
+      console.error('Erro ao extrair passeio por texto', error);
+      setTextError('Não foi possível extrair os dados do passeio.');
+      onNotify?.({ type: 'error', message: 'Não foi possível extrair os dados do passeio.' });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -638,183 +727,256 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold text-slate-900">Importar passeios</h2>
-            <p className="text-sm text-slate-600">Envie vários vouchers de passeio, execute o OCR e revise antes de salvar.</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex max-h-[calc(100vh-2rem)] flex-col md:max-h-[min(78vh,860px)]">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-slate-900">Importar passeios</h2>
+              <p className="text-sm text-slate-600">Envie vouchers de passeio, execute a extração e revise antes de salvar.</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 p-2 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">Fechar</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 p-2 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-            <span className="sr-only">Fechar</span>
-          </button>
-        </div>
 
-        <div className="space-y-6 px-6 py-5">
-          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Upload de imagens/PDF</p>
-                <p className="text-xs text-slate-600">Envie até {MAX_FILES} arquivos (PNG, JPG ou PDF) para processar em fila.</p>
-              </div>
-              <div className="flex items-center gap-2">
+          <div className="flex-1 overflow-y-auto px-6 py-5 overscroll-contain">
+            <div className="flex flex-col gap-6">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-medium text-slate-600">
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
+                  onClick={() => setActiveTab('text')}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition ${
+                    activeTab === 'text' ? 'bg-white text-slate-900 shadow-sm' : 'hover:bg-white/60'
+                  }`}
                 >
-                  <Upload className="h-4 w-4" aria-hidden="true" />
-                  Adicionar arquivos
+                  <FileText className="h-4 w-4" aria-hidden="true" />
+                  Texto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('image')}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition ${
+                    activeTab === 'image' ? 'bg-white text-slate-900 shadow-sm' : 'hover:bg-white/60'
+                  }`}
+                >
+                  <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                  Imagem
                 </button>
               </div>
-            </div>
 
-            <label
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={handleDrop}
-              className="mt-4 flex min-h-[140px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-600 transition hover:border-blue-300 hover:text-blue-700"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,application/pdf"
-                multiple
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <ImageIcon className="h-10 w-10 text-slate-400" aria-hidden="true" />
-              <div>
-                <p className="font-semibold text-slate-800">Arraste arquivos ou clique para selecionar</p>
-                <p className="text-xs text-slate-600">Suporte a PNG, JPG ou PDF de até 10 MB cada.</p>
-              </div>
-            </label>
-            {uploadError ? <p className="mt-2 text-sm font-semibold text-rose-600">{uploadError}</p> : null}
-          </div>
-
-          {hasItems ? (
-            <div className="space-y-3">
-              {fileItems.map((item, index) => {
-                const isPdfFile = item.file.type === 'application/pdf';
-                const isIncompleteExtraction =
-                  item.status === 'success' ? hasErrors(item.errors) : item.status === 'incomplete';
-                const statusLabel =
-                  item.status === 'processing'
-                    ? 'Processando...'
-                    : item.status === 'success'
-                      ? isIncompleteExtraction
-                        ? 'Extração incompleta (dados pendentes)'
-                        : 'Extração concluída com sucesso'
-                      : item.status === 'incomplete'
-                        ? 'Extração incompleta (dados pendentes)'
-                        : item.status === 'error'
-                          ? 'Erro na extração'
-                          : 'Aguardando OCR';
-                const statusTone =
-                  item.status === 'success'
-                    ? isIncompleteExtraction
-                      ? 'bg-rose-50 text-rose-700 border-rose-200'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : item.status === 'error'
-                      ? 'bg-rose-50 text-rose-700 border-rose-200'
-                      : item.status === 'processing'
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : item.status === 'incomplete'
-                          ? 'bg-rose-50 text-rose-700 border-rose-200'
-                          : 'bg-slate-100 text-slate-700 border-slate-200';
-                const canViewExtraction = item.status === 'success' || item.status === 'incomplete';
-                const canSave = canViewExtraction && !hasErrors(item.errors);
-
-                return (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm"
+              {activeTab === 'text' ? (
+                <div className="space-y-4">
+                  <label htmlFor="import-passeio-text" className="text-sm font-medium text-slate-700">
+                    Cole o texto completo do voucher ou e-mail do passeio
+                  </label>
+                  <textarea
+                    id="import-passeio-text"
+                    className="h-52 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    value={textInput}
+                    onChange={(event) => setTextInput(event.target.value)}
+                    placeholder="Cole aqui o conteúdo do passeio..."
+                  />
+                  {textError ? <p className="text-sm font-semibold text-rose-600">{textError}</p> : null}
+                  <button
+                    type="button"
+                    onClick={handleExtractFromText}
+                    disabled={isProcessing}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-800">Passeio {index + 1}</p>
-                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone}`}>
-                            {statusLabel}
-                          </span>
-                        </div>
-                        <p className="break-words text-sm text-slate-800">{item.file.name}</p>
-                        <p className="text-xs text-slate-500">
-                          {(item.file.size / (1024 * 1024)).toFixed(2)} MB
-                          {item.model ? ` · Modelo de IA: ${item.model}` : ''}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
-                      >
-                        Remover
-                      </button>
-                    </div>
+                    {isProcessing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                    {isProcessing ? 'Processando…' : 'Extrair dados'}
+                  </button>
+                </div>
+              ) : null}
 
-                    <div className="mt-3 grid gap-4 sm:grid-cols-3 sm:items-center">
-                      <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:col-span-2">
-                        {item.previewUrl && !isPdfFile ? (
-                          <img
-                            src={item.previewUrl}
-                            alt={`Pré-visualização de ${item.file.name}`}
-                            className="h-40 w-full object-contain"
-                          />
-                        ) : (
-                          <div className="flex h-40 items-center justify-center gap-2 text-slate-500">
-                            <FileText className="h-5 w-5" aria-hidden="true" />
-                            <span className="text-xs">Pré-visualização indisponível para PDF</span>
-                          </div>
-                        )}
+              {activeTab === 'image' ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Upload de imagens/PDF</p>
+                        <p className="text-xs text-slate-600">Envie até {MAX_FILES} arquivos (PNG, JPG ou PDF) para processar em fila.</p>
                       </div>
-
-                      <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleExtract(item)}
-                          disabled={item.status === 'processing'}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
                         >
-                          {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                          {item.status === 'processing' ? 'Processando…' : 'Executar OCR'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenPreview(item)}
-                          disabled={!canViewExtraction}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Ver dados extraídos
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSavePasseio(item)}
-                          disabled={!canSave || item.isSaving || item.status === 'processing'}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
-                        >
-                          {item.isSaving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                          {item.isSaving ? 'Salvando…' : 'Salvar passeio'}
+                          <Upload className="h-4 w-4" aria-hidden="true" />
+                          Adicionar arquivos
                         </button>
                       </div>
                     </div>
 
-                    {item.errorMessage ? (
-                      <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{item.errorMessage}</p>
-                    ) : null}
+                    <label
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={handleDrop}
+                      className="mt-4 flex min-h-[140px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-600 transition hover:border-blue-300 hover:text-blue-700"
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,application/pdf"
+                        multiple
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                      <ImageIcon className="h-10 w-10 text-slate-400" aria-hidden="true" />
+                      <div>
+                        <p className="font-semibold text-slate-800">Arraste arquivos ou clique para selecionar</p>
+                        <p className="text-xs text-slate-600">Suporte a PNG, JPG ou PDF de até 10 MB cada.</p>
+                      </div>
+                    </label>
+                    {uploadError ? <p className="mt-2 text-sm font-semibold text-rose-600">{uploadError}</p> : null}
                   </div>
-                );
-              })}
+
+                  {hasItems ? (
+                    <div className="max-h-[min(420px,50vh)] space-y-3 overflow-y-auto pr-1">
+                      {fileItems.map((item, index) => {
+                        const isTextSource = item.source === 'text';
+                        const isPdfFile = item.file?.type === 'application/pdf';
+                        const isIncompleteExtraction =
+                          item.status === 'success' ? hasErrors(item.errors) : item.status === 'incomplete';
+                        const statusLabel =
+                          item.status === 'processing'
+                            ? 'Processando...'
+                            : item.status === 'success'
+                              ? isIncompleteExtraction
+                                ? 'Extração incompleta (dados pendentes)'
+                                : 'Extração concluída com sucesso'
+                              : item.status === 'incomplete'
+                                ? 'Extração incompleta (dados pendentes)'
+                                : item.status === 'error'
+                                  ? 'Erro na extração'
+                                  : 'Aguardando OCR';
+                        const statusTone =
+                          item.status === 'success'
+                            ? isIncompleteExtraction
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : item.status === 'error'
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : item.status === 'processing'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : item.status === 'incomplete'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200';
+                        const canViewExtraction = item.status === 'success' || item.status === 'incomplete';
+                        const canSave = canViewExtraction && !hasErrors(item.errors);
+                        const fileSizeLabel = item.file
+                          ? `${(item.file.size / (1024 * 1024)).toFixed(2)} MB`
+                          : item.textContent
+                            ? `${item.textContent.length} caracteres`
+                            : '';
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-slate-800">Passeio {index + 1}</p>
+                                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone}`}>
+                                    {statusLabel}
+                                  </span>
+                                </div>
+                                <p className="break-words text-sm text-slate-800">
+                                  {isTextSource ? 'Conteúdo colado (texto)' : item.fileName}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {fileSizeLabel}
+                                  {item.model ? ` · Modelo de IA: ${item.model}` : ''}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(item.id)}
+                                className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+                              >
+                                Remover
+                              </button>
+                            </div>
+
+                            <div className="mt-3 grid gap-4 sm:grid-cols-3 sm:items-center">
+                              <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:col-span-2">
+                                {isTextSource ? (
+                                  <div className="h-40 overflow-auto p-3 text-left text-xs text-slate-700">
+                                    <p className="font-semibold text-slate-800">Pré-visualização do texto</p>
+                                    <p className="whitespace-pre-wrap leading-relaxed text-slate-700">{item.textContent}</p>
+                                  </div>
+                                ) : item.previewUrl && !isPdfFile ? (
+                                  <img
+                                    src={item.previewUrl}
+                                    alt={`Pré-visualização de ${item.fileName}`}
+                                    className="h-40 w-full object-contain"
+                                  />
+                                ) : (
+                                  <div className="flex h-40 items-center justify-center gap-2 text-slate-500">
+                                    <FileText className="h-5 w-5" aria-hidden="true" />
+                                    <span className="text-xs">Pré-visualização indisponível para PDF</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex flex-col gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => (isTextSource ? handleExtractFromText() : handleExtract(item))}
+                                  disabled={item.status === 'processing' || isTextSource}
+                                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                                >
+                                  {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                                  {isTextSource
+                                    ? 'Extração via texto'
+                                    : item.status === 'processing'
+                                      ? 'Processando…'
+                                      : 'Executar OCR'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPreview(item)}
+                                  disabled={!canViewExtraction}
+                                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Ver dados extraídos
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePasseio(item)}
+                                  disabled={!canSave || item.isSaving || item.status === 'processing'}
+                                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                                >
+                                  {item.isSaving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                                  {item.isSaving ? 'Salvando…' : 'Salvar passeio'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {item.errorMessage ? (
+                              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{item.errorMessage}</p>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
+                      Nenhum arquivo enviado ainda. Adicione vouchers de passeio para iniciar a extração.
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
-          ) : (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
-              Nenhum arquivo enviado ainda. Adicione vouchers de passeio para iniciar a extração.
-            </div>
-          )}
+          </div>
         </div>
       </div>
 
