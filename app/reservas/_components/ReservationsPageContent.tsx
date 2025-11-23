@@ -3,39 +3,49 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation';
+import { RESERVATIONS_DEFAULT_PAGE_SIZE, type ReservationFilters, type ReservationOptions, type ReservationRecord } from '@/lib/queries/reservas';
 import {
-  RESERVATIONS_DEFAULT_PAGE_SIZE,
   deleteReservation,
-  fetchReservationOptions,
-  fetchReservations,
-  type ReservationFilters,
-  type ReservationOptions,
-  type ReservationRecord,
-  type ReservationsSort,
-  type ReservationsSortField,
-} from '@/lib/queries/reservas';
+  fetchOptionsByMode,
+  fetchReservationsView,
+  type ReservationTableRecord,
+  type ReservationViewMode,
+  type ReservationsViewSort,
+  type ReservationsViewSortField,
+} from '@/lib/queries/reservationsView';
 import { useAuth } from '@/hooks/useAuth';
 import { ImportPasseioModal } from '@/components/ImportPasseioModal';
 import ReservationsFilters from './ReservationsFilters';
 import ReservationsTable from './ReservationsTable';
 import DeleteReservationDialog from './DeleteReservationDialog';
 
-const DEFAULT_SORT: ReservationsSort = { field: 'created_at', direction: 'desc' };
+const DEFAULT_SORT: ReservationsViewSort = { field: 'created_at', direction: 'desc' };
+const DEFAULT_VIEW_MODE: ReservationViewMode = 'traslados';
 
 function parseNumber(value: string | null, fallback: number) {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed;
 }
 
-function parseSort(value: string | null): ReservationsSort {
+function parseSort(value: string | null, viewMode: ReservationViewMode): ReservationsViewSort {
   if (!value) {
     return DEFAULT_SORT;
   }
 
   const [field, direction] = value.split(':');
-  const allowedFields: ReservationsSortField[] = ['data_chegada', 'data_saida', 'created_at', 'nome_pax', 'status'];
 
-  if (!allowedFields.includes(field as ReservationsSortField)) {
+  const commonFields: ReservationsViewSortField[] = ['created_at'];
+  const allowedByMode: Record<ReservationViewMode, ReservationsViewSortField[]> = {
+    traslados: ['data_chegada', 'data_saida', 'created_at', 'nome_pax', 'status'],
+    passeios: ['created_at', 'data_passeio', 'tipo_passeio'],
+    ambos: ['data_chegada', 'data_saida', 'created_at', 'nome_pax', 'status', 'data_passeio', 'tipo_passeio'],
+  };
+
+  const allowedFields: ReservationsViewSortField[] = Array.from(
+    new Set([...(allowedByMode[viewMode] ?? []), ...commonFields]),
+  );
+
+  if (!allowedFields.includes(field as ReservationsViewSortField)) {
     return DEFAULT_SORT;
   }
 
@@ -43,11 +53,19 @@ function parseSort(value: string | null): ReservationsSort {
     return DEFAULT_SORT;
   }
 
-  return { field: field as ReservationsSortField, direction };
+  return { field: field as ReservationsViewSortField, direction };
 }
 
-function formatSort(sort: ReservationsSort) {
+function formatSort(sort: ReservationsViewSort) {
   return `${sort.field}:${sort.direction}`;
+}
+
+function parseViewMode(value: string | null): ReservationViewMode {
+  if (value === 'passeios' || value === 'ambos' || value === 'traslados') {
+    return value;
+  }
+
+  return DEFAULT_VIEW_MODE;
 }
 
 function parseFiltersFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParams): ReservationFilters {
@@ -72,10 +90,12 @@ function formatQueryString({
   page,
   filters,
   sort,
+  viewMode,
 }: {
   page: number;
   filters: ReservationFilters;
-  sort: ReservationsSort;
+  sort: ReservationsViewSort;
+  viewMode: ReservationViewMode;
 }) {
   const params = new URLSearchParams();
 
@@ -112,6 +132,10 @@ function formatQueryString({
     params.set('sort', sortValue);
   }
 
+  if (viewMode !== DEFAULT_VIEW_MODE) {
+    params.set('mode', viewMode);
+  }
+
   return params.toString();
 }
 
@@ -120,7 +144,7 @@ export default function ReservationsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [reservations, setReservations] = useState<ReservationRecord[]>([]);
+  const [reservations, setReservations] = useState<ReservationTableRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -132,20 +156,22 @@ export default function ReservationsPageContent() {
 
   const page = useMemo(() => parseNumber(searchParams.get('page'), 1), [searchParams]);
   const filters = useMemo(() => parseFiltersFromSearchParams(searchParams), [searchParams]);
-  const sort = useMemo(() => parseSort(searchParams.get('sort')), [searchParams]);
+  const viewMode = useMemo(() => parseViewMode(searchParams.get('mode')), [searchParams]);
+  const sort = useMemo(() => parseSort(searchParams.get('sort'), viewMode), [searchParams, viewMode]);
 
   const handleNavigate = useCallback(
-    (next: { page?: number; filters?: ReservationFilters; sort?: ReservationsSort }) => {
+    (next: { page?: number; filters?: ReservationFilters; sort?: ReservationsViewSort; viewMode?: ReservationViewMode }) => {
       const nextPage = next.page ?? 1;
       const nextFilters = next.filters ?? filters;
       const nextSort = next.sort ?? sort;
-      const query = formatQueryString({ page: nextPage, filters: nextFilters, sort: nextSort });
+      const nextViewMode = next.viewMode ?? viewMode;
+      const query = formatQueryString({ page: nextPage, filters: nextFilters, sort: nextSort, viewMode: nextViewMode });
       const target = query ? `${pathname}?${query}` : pathname;
       setFeedback(null);
       setError(null);
       router.push(target);
     },
-    [filters, pathname, router, sort],
+    [filters, pathname, router, sort, viewMode],
   );
 
   const handleFiltersChange = useCallback(
@@ -165,14 +191,15 @@ export default function ReservationsPageContent() {
 
     try {
       const [listResult, filterOptions] = await Promise.all([
-        fetchReservations({
+        fetchReservationsView({
+          mode: viewMode,
           page,
           pageSize: RESERVATIONS_DEFAULT_PAGE_SIZE,
           sort,
           filters,
           userId: user.id,
         }),
-        fetchReservationOptions(user.id),
+        fetchOptionsByMode(viewMode, user.id),
       ]);
 
       if (page > 1 && listResult.data.length === 0 && listResult.total > 0) {
@@ -191,16 +218,16 @@ export default function ReservationsPageContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [filters, handleNavigate, page, sort, user]);
+  }, [filters, handleNavigate, page, sort, user, viewMode]);
 
   useEffect(() => {
     void refreshData();
   }, [refreshData]);
 
   const handleSortChange = useCallback(
-    (field: ReservationsSortField) => {
-      const nextDirection =
-        sort.field === field ? (sort.direction === 'asc' ? 'desc' : 'asc') : field === 'nome_pax' ? 'asc' : 'desc';
+    (field: ReservationsViewSortField) => {
+      const defaultDirection = ['nome_pax', 'tipo_passeio'].includes(field) ? 'asc' : 'desc';
+      const nextDirection = sort.field === field ? (sort.direction === 'asc' ? 'desc' : 'asc') : defaultDirection;
 
       handleNavigate({ page: 1, sort: { field, direction: nextDirection } });
     },
@@ -245,7 +272,28 @@ export default function ReservationsPageContent() {
   }, [refreshData, selectedReservationId, user]);
 
   const handleReservationUpdate = useCallback((updated: ReservationRecord) => {
-    setReservations((previous) => previous.map((reservation) => (reservation.id === updated.id ? updated : reservation)));
+    setReservations((previous) =>
+      previous.map((reservation) => {
+        if (reservation.reservation?.id !== updated.id) {
+          return reservation;
+        }
+
+        return {
+          ...reservation,
+          reservation: updated,
+          source: reservation.passeio ? 'ambos' : 'traslado',
+          operadora: updated.operadora,
+          regime: updated.regime,
+          numeroReserva: updated.numero_reserva ?? updated.codigo_reserva ?? reservation.numeroReserva ?? null,
+          nomePax: updated.nome_pax ?? updated.passageiro ?? reservation.nomePax ?? null,
+          hotel: updated.hotel ?? reservation.hotel ?? null,
+          dataChegada: updated.data_chegada ?? updated.data_voo_ida ?? reservation.dataChegada ?? null,
+          dataSaida: updated.data_saida ?? updated.data_voo_volta ?? reservation.dataSaida ?? null,
+          status: updated.status ?? reservation.status ?? null,
+          createdAt: updated.created_at ?? reservation.createdAt ?? null,
+        };
+      }),
+    );
   }, []);
 
   const handlePasseioSaved = useCallback(
@@ -253,6 +301,22 @@ export default function ReservationsPageContent() {
       setFeedback(message ?? 'Passeio salvo com sucesso.');
       setError(null);
     },
+    [],
+  );
+
+  const handleViewModeChange = useCallback(
+    (mode: ReservationViewMode) => {
+      handleNavigate({ page: 1, sort: DEFAULT_SORT, viewMode: mode });
+    },
+    [handleNavigate],
+  );
+
+  const viewModeOptions: { value: ReservationViewMode; label: string }[] = useMemo(
+    () => [
+      { value: 'traslados', label: 'Traslados' },
+      { value: 'passeios', label: 'Passeios' },
+      { value: 'ambos', label: 'Ambos (traslados + passeios)' },
+    ],
     [],
   );
 
@@ -302,9 +366,34 @@ export default function ReservationsPageContent() {
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       ) : null}
 
+      <section className="flex items-center justify-start">
+        <div className="inline-flex gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 text-sm font-semibold text-slate-700 shadow-sm">
+          {viewModeOptions.map((option) => {
+            const isActive = option.value === viewMode;
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleViewModeChange(option.value)}
+                className={`rounded-full px-4 py-2 transition ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+                aria-pressed={isActive}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <ReservationsTable
           reservations={reservations}
+          viewMode={viewMode}
           isLoading={isLoading}
           page={page}
           pageSize={RESERVATIONS_DEFAULT_PAGE_SIZE}
