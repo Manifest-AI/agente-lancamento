@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import { normalizePasseioDate, normalizePasseioType, type PasseioTipo } from '@/lib/passeios/normalizePasseio';
-import { UNKNOWN_PASSEIO_TYPE } from '@/lib/passeios/prompt';
+import { UNKNOWN_PASSEIO_TYPE, VALID_PASSEIO_TYPES } from '@/lib/passeios/prompt';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdminClient';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,6 @@ type PasseioRequestBody = {
   hotel?: string | null;
   regime?: string | null;
   passageiros?: { nome?: string | null; tipo?: string | null }[];
-  reserva_id?: string | null;
 };
 
 type SuccessResponse = {
@@ -73,8 +72,23 @@ function assertPasseioType(value: string): PasseioTipo {
   return normalized;
 }
 
-function isValidUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+function normalizePasseioDateOnly(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const datetimeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})T/);
+  if (datetimeMatch) {
+    return datetimeMatch[1];
+  }
+
+  const normalized = normalizePasseioDate(trimmed);
+  if (normalized && normalized.includes('T')) {
+    return normalized.split('T')[0];
+  }
+
+  return normalized;
 }
 
 function isSupabaseValidationError(code?: string) {
@@ -98,27 +112,68 @@ export async function POST(request: Request) {
   const hotel = sanitizeString(body.hotel ?? null);
   const regime = normalizeRegime(body.regime ?? null);
   const passageiros = normalizePassengers(body.passageiros);
-  const reservaId = sanitizeString(body.reserva_id ?? null) || null;
+  const rawPassengers = Array.isArray(body.passageiros) ? body.passageiros : [];
 
-  if (reservaId && !isValidUuid(reservaId)) {
-    return makeError(400, 'Reserva associada inválida.', requestId);
+  const missingFields: string[] = [];
+  const invalidFields: string[] = [];
+
+  if (!idExterno) missingFields.push('id_externo');
+
+  if (!body.data_passeio) {
+    missingFields.push('data_passeio');
   }
 
-  if (
-    !idExterno ||
-    !body.data_passeio ||
-    !tipoPasseioRaw ||
-    !descricao ||
-    !hotel ||
-    !regime ||
-    passageiros.length === 0
-  ) {
-    return makeError(400, 'Campos obrigatórios ausentes.', requestId);
+  const dataPasseio = normalizePasseioDateOnly(body.data_passeio);
+  if (body.data_passeio && !dataPasseio) {
+    invalidFields.push('data_passeio');
   }
 
-  const dataPasseio = normalizePasseioDate(body.data_passeio);
-  if (!dataPasseio) {
-    return makeError(400, 'Data do passeio em formato inválido.', requestId);
+  if (!tipoPasseioRaw) {
+    missingFields.push('tipo_passeio');
+  }
+
+  if (tipoPasseioRaw && !VALID_PASSEIO_TYPES.includes(tipoPasseioRaw.toUpperCase() as PasseioTipo)) {
+    invalidFields.push('tipo_passeio');
+  }
+
+  if (!descricao) missingFields.push('descricao');
+  if (!hotel) missingFields.push('hotel');
+
+  if (!sanitizeString(body.regime ?? null)) {
+    missingFields.push('regime');
+  }
+  if (sanitizeString(body.regime ?? null) && !regime) {
+    invalidFields.push('regime');
+  }
+
+  const hasInvalidPassenger = rawPassengers.some((passageiro) => {
+    const nome = sanitizeString(passageiro?.nome);
+    const tipo = sanitizeString(passageiro?.tipo).toUpperCase();
+    if (!nome || !tipo) {
+      return true;
+    }
+    return !(tipo === 'ADT' || tipo === 'CHD' || tipo === 'INF');
+  });
+
+  if (passageiros.length === 0) {
+    missingFields.push('passageiros');
+  }
+
+  if (hasInvalidPassenger) {
+    invalidFields.push('passageiros');
+  }
+
+  if (missingFields.length > 0 || invalidFields.length > 0) {
+    return NextResponse.json(
+      {
+        error: 'Campos obrigatórios ausentes ou inválidos.',
+        missingFields,
+        invalidFields,
+        requestId,
+        ok: false,
+      },
+      { status: 400 },
+    );
   }
 
   let tipoPasseio: PasseioTipo;
@@ -129,12 +184,17 @@ export async function POST(request: Request) {
     return makeError(400, 'Tipo de passeio inválido.', requestId, details);
   }
 
+  if (!dataPasseio) {
+    return makeError(400, 'Data do passeio em formato inválido.', requestId);
+  }
+
+  const tipoPax = passageiros[0]?.tipo ?? null;
+
   const supabase = getSupabaseAdminClient();
 
   const { data, error: insertError } = await supabase
     .from('passeios')
     .insert({
-      reserva_id: reservaId || null,
       id_externo: idExterno,
       tipo_passeio: tipoPasseio,
       descricao,
@@ -142,6 +202,7 @@ export async function POST(request: Request) {
       hotel,
       regime,
       passageiros,
+      tipo_pax: tipoPax,
     })
     .select('*')
     .single();
@@ -156,11 +217,28 @@ export async function POST(request: Request) {
       hint: insertError.hint,
     });
 
+    if (insertError.code === '23505') {
+      return makeError(409, 'Já existe um passeio com os mesmos dados.', requestId, insertError.message);
+    }
+
+    if (insertError.code && insertError.code.startsWith('23')) {
+      return makeError(400, 'Violação de integridade ao salvar o passeio.', requestId, insertError.message);
+    }
+
+    if (insertError.code === '42703') {
+      return makeError(
+        500,
+        'Estrutura da tabela de passeios incompatível com os dados enviados.',
+        requestId,
+        insertError.message,
+      );
+    }
+
     if (isSupabaseValidationError(insertError.code)) {
       return makeError(400, 'Dados inválidos para salvar o passeio.', requestId, insertError.message);
     }
 
-    return makeError(500, 'Não foi possível salvar o passeio.', requestId);
+    return makeError(500, 'Não foi possível salvar o passeio.', requestId, insertError.message);
   }
 
   const payload: SuccessResponse = { ok: true, data, requestId };

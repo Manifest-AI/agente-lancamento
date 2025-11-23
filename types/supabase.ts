@@ -142,7 +142,7 @@ export type Database = {
           id: string;
           id_externo: string;
           passageiros: Json | null;
-          reserva_id: string | null;
+          tipo_pax: string | null;
           tipo_passeio: Database['public']['Enums']['passeio_tipo'];
           regime: string | null;
         };
@@ -154,7 +154,7 @@ export type Database = {
           id?: string;
           id_externo: string;
           passageiros?: Json | null;
-          reserva_id?: string | null;
+          tipo_pax?: string | null;
           tipo_passeio: Database['public']['Enums']['passeio_tipo'];
           regime?: string | null;
         };
@@ -166,18 +166,11 @@ export type Database = {
           id?: string;
           id_externo?: string;
           passageiros?: Json | null;
-          reserva_id?: string | null;
+          tipo_pax?: string | null;
           tipo_passeio?: Database['public']['Enums']['passeio_tipo'];
           regime?: string | null;
         };
-        Relationships: [
-          {
-            foreignKeyName: "passeios_reserva_id_fkey";
-            columns: ["reserva_id"];
-            referencedRelation: "reservas";
-            referencedColumns: ["id"];
-          },
-        ];
+        Relationships: [];
       };
     };
     Views: {};
