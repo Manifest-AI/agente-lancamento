@@ -15,6 +15,7 @@ import {
   type ReservationsSortField,
 } from '@/lib/queries/reservas';
 import { useAuth } from '@/hooks/useAuth';
+import { ImportPasseioModal } from '@/components/ImportPasseioModal';
 import ReservationsFilters from './ReservationsFilters';
 import ReservationsTable from './ReservationsTable';
 import DeleteReservationDialog from './DeleteReservationDialog';
@@ -127,6 +128,7 @@ export default function ReservationsPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
+  const [isPasseioModalOpen, setIsPasseioModalOpen] = useState(false);
 
   const page = useMemo(() => parseNumber(searchParams.get('page'), 1), [searchParams]);
   const filters = useMemo(() => parseFiltersFromSearchParams(searchParams), [searchParams]);
@@ -246,6 +248,14 @@ export default function ReservationsPageContent() {
     setReservations((previous) => previous.map((reservation) => (reservation.id === updated.id ? updated : reservation)));
   }, []);
 
+  const handlePasseioSaved = useCallback(
+    (message?: string) => {
+      setFeedback(message ?? 'Passeio salvo com sucesso.');
+      setError(null);
+    },
+    [],
+  );
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
@@ -260,6 +270,13 @@ export default function ReservationsPageContent() {
           >
             Voltar ao painel
           </Link>
+          <button
+            type="button"
+            onClick={() => setIsPasseioModalOpen(true)}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+          >
+            Importar passeios
+          </button>
           <Link
             href="/nova-reserva"
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
@@ -306,6 +323,11 @@ export default function ReservationsPageContent() {
         onCancel={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
         loading={isDeleting}
+      />
+      <ImportPasseioModal
+        isOpen={isPasseioModalOpen}
+        onClose={() => setIsPasseioModalOpen(false)}
+        onSaved={handlePasseioSaved}
       />
     </main>
   );
