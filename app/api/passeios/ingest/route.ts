@@ -48,7 +48,12 @@ function extractJsonBlock(text: string) {
 }
 
 async function extractPasseioFromText(openai: OpenAI, model: string, conteudo: string) {
-  const userContent = ['Leia o texto de passeio delimitado a seguir e devolva apenas o JSON solicitado.', '<<<PASSEIO>>>', conteudo, '<<<FIM>>>'].join('\n');
+  const userContent = [
+    'Leia o texto do voucher ou e-mail do PASSEIO delimitado a seguir, ignore dados de traslado/hotel e devolva apenas o JSON do passeio.',
+    '<<<PASSEIO>>>',
+    conteudo,
+    '<<<FIM>>>',
+  ].join('\n');
 
   const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: PROMPT_PASSEIOS_SYSTEM },

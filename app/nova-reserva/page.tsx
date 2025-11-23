@@ -9,6 +9,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { ImportReservaButton } from '@/components/ImportReservaButton';
 import { ImportReservaModal } from '@/components/ImportReservaModal';
+import { ImportPasseioButton } from '@/components/ImportPasseioButton';
+import { ImportPasseioModal } from '@/components/ImportPasseioModal';
 import { ReservaFormFields } from '@/components/ReservaFormFields';
 import {
   createEmptyPreview,
@@ -48,6 +50,7 @@ export default function NovaReservaPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isPasseioModalOpen, setIsPasseioModalOpen] = useState(false);
   const [importMode, setImportMode] = useState<'initial' | 'adjustment'>('initial');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -234,6 +237,7 @@ export default function NovaReservaPage() {
               label="Alterações e Cancelamentos"
               icon={RefreshCcw}
             />
+            <ImportPasseioButton onClick={() => setIsPasseioModalOpen(true)} />
             <Link
               href="/dashboard"
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
@@ -284,6 +288,11 @@ export default function NovaReservaPage() {
           onApply={handleApplyImportedFields}
           onNotify={handleModalNotify}
           mode={importMode}
+        />
+        <ImportPasseioModal
+          isOpen={isPasseioModalOpen}
+          onClose={() => setIsPasseioModalOpen(false)}
+          onNotify={handleModalNotify}
         />
       </main>
     </ProtectedRoute>

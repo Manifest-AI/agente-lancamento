@@ -1,16 +1,17 @@
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
-import { normalizePasseioDate, normalizePasseioType } from '@/lib/passeios/normalizePasseio';
+import { normalizePasseioDate, normalizePasseioType, type PasseioTipo } from '@/lib/passeios/normalizePasseio';
+import { VALID_PASSEIO_TYPES } from '@/lib/passeios/prompt';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdminClient';
 
 export const runtime = 'nodejs';
 
 type PasseioRequestBody = {
-  operadora: string;
   id_externo: string;
   data_passeio: string;
   tipo_passeio: string;
   descricao?: string | null;
+  reserva_id?: string | null;
 };
 
 type SuccessResponse = {
@@ -37,6 +38,14 @@ function sanitizeString(value?: string | null) {
   return value?.trim() ?? '';
 }
 
+function assertPasseioType(value: string): PasseioTipo {
+  const normalized = normalizePasseioType(value);
+  if (!normalized || !VALID_PASSEIO_TYPES.includes(normalized)) {
+    throw new Error('Tipo de passeio inválido.');
+  }
+  return normalized;
+}
+
 export async function POST(request: Request) {
   const requestId = randomUUID();
   let body: PasseioRequestBody;
@@ -47,46 +56,34 @@ export async function POST(request: Request) {
     return makeError(400, 'Corpo da requisição inválido.', requestId);
   }
 
-  const operadora = sanitizeString(body.operadora);
   const idExterno = sanitizeString(body.id_externo);
   const tipoPasseioRaw = sanitizeString(body.tipo_passeio);
   const descricao = sanitizeString(body.descricao ?? null) || null;
+  const reservaId = sanitizeString(body.reserva_id ?? null) || null;
 
-  if (!operadora || !idExterno || !body.data_passeio) {
+  if (!idExterno || !body.data_passeio || !tipoPasseioRaw) {
     return makeError(400, 'Campos obrigatórios ausentes.', requestId);
   }
 
-  let dataPasseio: string;
-  let tipoPasseio: string;
+  const dataPasseio = normalizePasseioDate(body.data_passeio);
+  if (!dataPasseio) {
+    return makeError(400, 'Data do passeio em formato inválido.', requestId);
+  }
+
+  let tipoPasseio: PasseioTipo;
   try {
-    dataPasseio = normalizePasseioDate(body.data_passeio);
-    tipoPasseio = normalizePasseioType(tipoPasseioRaw);
+    tipoPasseio = assertPasseioType(tipoPasseioRaw);
   } catch (error) {
     const details = error instanceof Error ? error.message : undefined;
-    return makeError(400, 'Dados de passeio inválidos.', requestId, details);
+    return makeError(400, 'Tipo de passeio inválido.', requestId, details);
   }
 
   const supabase = getSupabaseAdminClient();
 
-  const { data: reservas, error: reservasError } = await supabase
-    .from('reservas')
-    .select('id, created_at, numero_reserva')
-    // "id_externo" das reservas é armazenado em "numero_reserva".
-    .eq('numero_reserva', idExterno)
-    .order('created_at', { ascending: false });
-
-  if (reservasError) {
-    console.error({ requestId, route: 'passeios', error: reservasError });
-    return makeError(500, 'Erro ao consultar reservas para vincular o passeio.', requestId);
-  }
-
-  const reservaId = reservas?.[0]?.id ?? null;
-
   const { data, error: insertError } = await supabase
     .from('passeios')
     .insert({
-      // Campo "operadora" ainda não existe na tabela, mas é preservado no payload para compatibilidade com a extração.
-      reserva_id: reservaId,
+      reserva_id: reservaId || null,
       id_externo: idExterno,
       tipo_passeio: tipoPasseio,
       descricao,
@@ -100,6 +97,6 @@ export async function POST(request: Request) {
     return makeError(500, 'Não foi possível salvar o passeio.', requestId);
   }
 
-  const payload: SuccessResponse = { ok: true, data: { ...data, operadora }, requestId };
+  const payload: SuccessResponse = { ok: true, data, requestId };
   return NextResponse.json(payload, { status: 201 });
 }

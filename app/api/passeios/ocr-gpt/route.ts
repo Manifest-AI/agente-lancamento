@@ -83,7 +83,10 @@ async function extractPasseioFromFile(openai: OpenAI, model: string, file: File)
     {
       role: 'user',
       content: [
-        { type: 'text', text: 'Leia o documento de PASSEIO enviado e retorne apenas o JSON solicitado.' },
+        {
+          type: 'text',
+          text: 'Leia a imagem do voucher/ingresso do PASSEIO enviado, ignore dados de traslado/hotel e retorne apenas o JSON de passeio solicitado.',
+        },
         { type: 'image_url', image_url: { url: dataUrl } },
       ],
     },

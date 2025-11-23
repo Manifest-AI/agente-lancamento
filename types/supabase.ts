@@ -174,7 +174,7 @@ export type Database = {
     Views: {};
     Functions: {};
     Enums: {
-      passeio_tipo: 'AR' | 'TR' | 'CA' | 'RF' | 'FL' | 'OB' | 'OB_COM_QUADRADO';
+      passeio_tipo: 'AR' | 'TR' | 'CA' | 'RF' | 'FL' | 'OB' | 'OB_QUADRADO';
     };
     CompositeTypes: {};
   };

@@ -1,18 +1,19 @@
 import type { ExtractedPasseio } from '@/types/ocr-gpt';
-import { VALID_PASSEIO_TYPES } from './prompt';
+import { UNKNOWN_PASSEIO_TYPE, VALID_PASSEIO_TYPES } from './prompt';
+
+export type PasseioTipo = (typeof VALID_PASSEIO_TYPES)[number];
 
 export type NormalizedPasseio = {
-  operadora: string;
-  id_externo: string;
-  data_passeio: string;
-  tipo_passeio: (typeof VALID_PASSEIO_TYPES)[number];
+  id_externo: string | null;
+  data_passeio: string | null;
+  tipo_passeio: PasseioTipo | typeof UNKNOWN_PASSEIO_TYPE | null;
   descricao: string | null;
 };
 
-export function normalizePasseioDate(value: string) {
+export function normalizePasseioDate(value?: string | null) {
   const trimmed = value?.trim();
   if (!trimmed) {
-    throw new Error('Data do passeio ausente.');
+    return null;
   }
 
   const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -26,38 +27,27 @@ export function normalizePasseioDate(value: string) {
     return `${year}-${month}-${day}`;
   }
 
-  throw new Error('Data do passeio em formato inválido.');
+  return null;
 }
 
-export function normalizePasseioType(value: string): NormalizedPasseio['tipo_passeio'] {
+export function normalizePasseioType(value?: string | null): NormalizedPasseio['tipo_passeio'] {
   const normalized = value?.trim().toUpperCase();
-  if (!normalized || !VALID_PASSEIO_TYPES.includes(normalized as NormalizedPasseio['tipo_passeio'])) {
-    throw new Error('Tipo de passeio não reconhecido.');
+  if (!normalized) {
+    return UNKNOWN_PASSEIO_TYPE;
   }
-  return normalized as NormalizedPasseio['tipo_passeio'];
+
+  if (!VALID_PASSEIO_TYPES.includes(normalized as PasseioTipo)) {
+    return UNKNOWN_PASSEIO_TYPE;
+  }
+
+  return normalized as PasseioTipo;
 }
 
 export function normalizeExtractedPasseio(data: ExtractedPasseio): NormalizedPasseio {
-  const operadora = data.operadora?.trim();
-  const idExterno = data.id_externo?.trim();
-
-  if (!operadora) {
-    throw new Error('Operadora é obrigatória.');
-  }
-
-  if (!idExterno) {
-    throw new Error('ID externo é obrigatório.');
-  }
-
-  const dataPasseio = normalizePasseioDate(data.data_passeio);
-  const tipoPasseio = normalizePasseioType(data.tipo_passeio);
-  const descricao = data.descricao?.trim() || null;
-
   return {
-    operadora,
-    id_externo: idExterno,
-    data_passeio: dataPasseio,
-    tipo_passeio: tipoPasseio,
-    descricao,
+    id_externo: data.id_externo?.trim() || null,
+    data_passeio: normalizePasseioDate(data.data_passeio),
+    tipo_passeio: normalizePasseioType(data.tipo_passeio),
+    descricao: data.descricao?.trim() || null,
   };
 }
