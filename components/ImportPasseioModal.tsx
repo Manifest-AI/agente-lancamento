@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
-import { AlertTriangle, CheckCircle2, Eye, FileText, Image as ImageIcon, Loader2, RefreshCcw, Upload, X } from 'lucide-react';
+import { FileText, Image as ImageIcon, Loader2, Upload, X } from 'lucide-react';
 import { UNKNOWN_PASSEIO_TYPE, VALID_PASSEIO_TYPES } from '@/lib/passeios/prompt';
 import type { NormalizedPasseio } from '@/lib/passeios/normalizePasseio';
 
@@ -54,6 +54,7 @@ type PasseioQueueItem = {
   id: string;
   file: File;
   fileName: string;
+  previewUrl: string | null;
   status: ExtractionStatus;
   data?: NormalizedPasseio | null;
   draft: PasseioFormState;
@@ -89,22 +90,6 @@ const EMPTY_DRAFT: PasseioFormState = {
   hotel: '',
   regime: '',
   passageiros: [],
-};
-
-const STATUS_LABEL: Record<ExtractionStatus, string> = {
-  pending: 'Aguardando OCR',
-  processing: 'Processando...',
-  success: 'Extração concluída com sucesso',
-  incomplete: 'Extração incompleta (dados pendentes)',
-  error: 'Falha na extração',
-};
-
-const STATUS_CLASSES: Record<ExtractionStatus, string> = {
-  pending: 'border-slate-200 bg-slate-50 text-slate-700',
-  processing: 'border-amber-200 bg-amber-50 text-amber-700',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  incomplete: 'border-amber-200 bg-amber-50 text-amber-700',
-  error: 'border-rose-200 bg-rose-50 text-rose-700',
 };
 
 function createId() {
@@ -473,6 +458,11 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
 
   useEffect(() => {
     if (!isOpen) {
+      fileItems.forEach((item) => {
+        if (item.previewUrl) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      });
       setFileItems([]);
       setUploadError(null);
       setActivePreviewItemId(null);
@@ -482,7 +472,7 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
         fileInputRef.current.value = '';
       }
     }
-  }, [isOpen]);
+  }, [fileItems, isOpen]);
 
   const hasItems = useMemo(() => fileItems.length > 0, [fileItems]);
 
@@ -500,6 +490,7 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
       id: createId(),
       file,
       fileName: file.name,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       status: 'pending' as ExtractionStatus,
       draft: { ...EMPTY_DRAFT },
       errors: {},
@@ -518,6 +509,16 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
       return;
     }
     handleFiles(event.dataTransfer.files);
+  };
+
+  const handleRemoveItem = (id: string) => {
+    setFileItems((current) => {
+      const removed = current.find((item) => item.id === id);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return current.filter((item) => item.id !== id);
+    });
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -632,12 +633,6 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
     }
   };
 
-  const statusIcon = (status: ExtractionStatus) => {
-    if (status === 'success') return <CheckCircle2 className="h-4 w-4" />;
-    if (status === 'error' || status === 'incomplete') return <AlertTriangle className="h-4 w-4" />;
-    return <Loader2 className="h-4 w-4 animate-spin" />;
-  };
-
   if (!isOpen) {
     return null;
   }
@@ -703,64 +698,117 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
 
           {hasItems ? (
             <div className="space-y-3">
-              {fileItems.map((item, index) => (
-                <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                        <FileText className="h-5 w-5" aria-hidden="true" />
+              {fileItems.map((item, index) => {
+                const isPdfFile = item.file.type === 'application/pdf';
+                const isIncompleteExtraction =
+                  item.status === 'success' ? hasErrors(item.errors) : item.status === 'incomplete';
+                const statusLabel =
+                  item.status === 'processing'
+                    ? 'Processando...'
+                    : item.status === 'success'
+                      ? isIncompleteExtraction
+                        ? 'Extração incompleta (dados pendentes)'
+                        : 'Extração concluída com sucesso'
+                      : item.status === 'incomplete'
+                        ? 'Extração incompleta (dados pendentes)'
+                        : item.status === 'error'
+                          ? 'Erro na extração'
+                          : 'Aguardando OCR';
+                const statusTone =
+                  item.status === 'success'
+                    ? isIncompleteExtraction
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : item.status === 'error'
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : item.status === 'processing'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : item.status === 'incomplete'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200'
+                          : 'bg-slate-100 text-slate-700 border-slate-200';
+                const canViewExtraction = item.status === 'success' || item.status === 'incomplete';
+                const canSave = canViewExtraction && !hasErrors(item.errors);
+
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-800">Passeio {index + 1}</p>
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusTone}`}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <p className="break-words text-sm text-slate-800">{item.file.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {(item.file.size / (1024 * 1024)).toFixed(2)} MB
+                          {item.model ? ` · Modelo de IA: ${item.model}` : ''}
+                        </p>
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Passeio {index + 1}</p>
-                        <p className="text-xs text-slate-600">{item.fileName}</p>
-                        {item.model ? (
-                          <p className="text-[11px] text-slate-500">Modelo de IA: {item.model}</p>
-                        ) : null}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(item.id)}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        Remover
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid gap-4 sm:grid-cols-3 sm:items-center">
+                      <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:col-span-2">
+                        {item.previewUrl && !isPdfFile ? (
+                          <img
+                            src={item.previewUrl}
+                            alt={`Pré-visualização de ${item.file.name}`}
+                            className="h-40 w-full object-contain"
+                          />
+                        ) : (
+                          <div className="flex h-40 items-center justify-center gap-2 text-slate-500">
+                            <FileText className="h-5 w-5" aria-hidden="true" />
+                            <span className="text-xs">Pré-visualização indisponível para PDF</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleExtract(item)}
+                          disabled={item.status === 'processing'}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                          {item.status === 'processing' ? 'Processando…' : 'Executar OCR'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPreview(item)}
+                          disabled={!canViewExtraction}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Ver dados extraídos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSavePasseio(item)}
+                          disabled={!canSave || item.isSaving || item.status === 'processing'}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {item.isSaving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                          {item.isSaving ? 'Salvando…' : 'Salvar passeio'}
+                        </button>
                       </div>
                     </div>
 
-                    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[item.status]}`}>
-                      {item.status === 'pending' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : statusIcon(item.status)}
-                      {STATUS_LABEL[item.status]}
-                    </div>
+                    {item.errorMessage ? (
+                      <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{item.errorMessage}</p>
+                    ) : null}
                   </div>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => handleExtract(item)}
-                      disabled={item.status === 'processing'}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {item.status === 'processing' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                      Executar OCR
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleOpenPreview(item)}
-                      disabled={!item.draft}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Eye className="h-4 w-4" /> Ver dados extraídos
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSavePasseio(item)}
-                      disabled={item.isSaving || item.status === 'processing' || hasErrors(item.errors)}
-                      className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {item.isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                      {item.isSaving ? 'Salvando...' : 'Salvar passeio'}
-                    </button>
-                  </div>
-
-                  {item.errorMessage ? (
-                    <p className="mt-2 text-sm font-semibold text-rose-600">{item.errorMessage}</p>
-                  ) : null}
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
