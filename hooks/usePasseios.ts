@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from 'react';
 
-import { listPasseiosByReservaId } from '@/lib/queries/passeios';
+import { listPasseiosByIdExterno } from '@/lib/queries/passeios';
 import type { Passeio } from '@/types/supabase';
 
-// Hook de leitura para futura UI de passeios integrada às reservas.
-export function usePasseiosByReservaId(reservaId?: string) {
+// Hook de leitura para futura UI de passeios.
+export function usePasseiosByIdExterno(idExterno?: string) {
   const [data, setData] = useState<Passeio[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!reservaId) {
+    if (!idExterno) {
       setData([]);
       setError(null);
       setIsLoading(false);
@@ -22,7 +22,7 @@ export function usePasseiosByReservaId(reservaId?: string) {
     setIsLoading(true);
     setError(null);
 
-    listPasseiosByReservaId(reservaId)
+    listPasseiosByIdExterno(idExterno)
       .then(setData)
       .catch((err) => {
         console.error(err);
@@ -31,7 +31,7 @@ export function usePasseiosByReservaId(reservaId?: string) {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [reservaId]);
+  }, [idExterno]);
 
   return { data, isLoading, error };
 }

@@ -56,6 +56,9 @@ type ExtractResponse = {
 type SaveResponse = {
   ok: boolean;
   error?: string;
+  missingFields?: string[];
+  invalidFields?: string[];
+  requestId?: string;
 };
 
 type PasseioQueueItem = {
@@ -103,6 +106,17 @@ const EMPTY_DRAFT: PasseioFormState = {
 };
 
 const VALID_PASSEIO_REGIMES = ['PRIVATIVO', 'REGULAR'];
+
+const FIELD_LABELS: Record<string, string> = {
+  id_externo: 'ID externo',
+  tipo_passeio: 'Tipo de passeio',
+  data_passeio: 'Data do passeio',
+  descricao: 'Descrição',
+  hotel: 'Hotel',
+  regime: 'Regime',
+  passageiros: 'Passageiros',
+  tipo_pax: 'Tipo de passageiro',
+};
 
 function createId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -245,6 +259,20 @@ function hasErrors(errors: PasseioFormErrors) {
 
 function buildPassengerPlaceholder(index: number) {
   return `Passageiro ${index + 1}`;
+}
+
+function formatFieldList(fields?: string[]) {
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return '';
+  }
+
+  const translated = fields.map((field) => FIELD_LABELS[field] ?? field);
+  if (translated.length === 1) {
+    return translated[0];
+  }
+
+  const last = translated.pop();
+  return `${translated.join(', ')}${translated.length ? ' e ' : ''}${last}`;
 }
 
 function normalizePassengersForSave(passageiros: PasseioPassengerDraft[]): PasseioPassengerPayload[] {
@@ -868,6 +896,8 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
       return false;
     }
 
+    const normalizedPassengers = normalizePassengersForSave(item.draft.passageiros);
+
     const payload = {
       id_externo: item.draft.id_externo.trim(),
       tipo_passeio: item.draft.tipo_passeio.trim(),
@@ -875,8 +905,8 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
       descricao: item.draft.descricao.trim(),
       hotel: item.draft.hotel.trim(),
       regime: item.draft.regime.trim(),
-      passageiros: normalizePassengersForSave(item.draft.passageiros),
-      reserva_id: null,
+      passageiros: normalizedPassengers,
+      tipo_pax: normalizedPassengers[0]?.tipo ?? null,
     };
 
     updateItem(item.id, (current) => ({ ...current, isSaving: true, errorMessage: null }));
@@ -888,20 +918,41 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
         body: JSON.stringify(payload),
       });
 
-      const body = (await response.json()) as SaveResponse;
-      if (!body.ok) {
-        const message = body.error || 'Não foi possível salvar o passeio.';
-        updateItem(item.id, (current) => ({ ...current, isSaving: false, errorMessage: message }));
-        onNotify?.({ type: 'error', message });
-        return false;
+      let body: SaveResponse | null = null;
+      try {
+        body = (await response.json()) as SaveResponse;
+      } catch (error) {
+        console.error('[Importar passeios] Falha ao ler resposta da API:', error);
       }
 
-      updateItem(item.id, (current) => ({ ...current, isSaving: false, status: 'success' }));
-      onNotify?.({ type: 'success', message: 'Passeio salvo com sucesso.' });
-      onSaved?.('Passeio salvo com sucesso.');
-      return true;
+      if (response.ok && body?.ok) {
+        updateItem(item.id, (current) => ({ ...current, isSaving: false, status: 'success' }));
+        onNotify?.({ type: 'success', message: 'Passeio salvo com sucesso.' });
+        onSaved?.('Passeio salvo com sucesso.');
+        return true;
+      }
+
+      const missingFieldsMessage = formatFieldList(body?.missingFields);
+      const invalidFieldsMessage = formatFieldList(body?.invalidFields);
+
+      let message = body?.error || 'Não foi possível salvar o passeio.';
+
+      if (response.status === 400 && (missingFieldsMessage || invalidFieldsMessage)) {
+        const parts = [missingFieldsMessage, invalidFieldsMessage].filter(Boolean);
+        message = `Não foi possível salvar o passeio. Verifique os campos obrigatórios: ${parts.join(', ')}.`;
+      } else if (response.status === 409) {
+        message = body?.error || 'Existe um conflito ao salvar este passeio.';
+      } else if (response.status >= 500) {
+        message = 'Ocorreu um erro interno ao salvar o passeio. Tente novamente ou contate o suporte.';
+      }
+
+      console.error('[Importar passeios] Erro ao salvar passeio:', { status: response.status, body });
+
+      updateItem(item.id, (current) => ({ ...current, isSaving: false, errorMessage: message }));
+      onNotify?.({ type: 'error', message });
+      return false;
     } catch (error) {
-      console.error('Erro ao salvar passeio', error);
+      console.error('[Importar passeios] Erro ao salvar passeio:', error);
       updateItem(item.id, (current) => ({ ...current, isSaving: false, errorMessage: 'Não foi possível salvar o passeio.' }));
       onNotify?.({ type: 'error', message: 'Não foi possível salvar o passeio.' });
       return false;
