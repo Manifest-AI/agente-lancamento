@@ -28,9 +28,8 @@ export type ExtractedReservationDraft = Record<ExtractedReservationFieldKey, str
 export type ExtractedReservationErrors = Partial<Record<ExtractedReservationFieldKey, string>>;
 
 export type ExtractedPasseio = {
-  operadora: string;
-  id_externo: string;
-  data_passeio: string;
-  tipo_passeio: 'AR' | 'TR' | 'CA' | 'RF' | 'FL' | 'OB' | 'OB_COM_QUADRADO';
+  id_externo: string | null;
+  data_passeio: string | null;
+  tipo_passeio: 'AR' | 'TR' | 'CA' | 'RF' | 'FL' | 'OB' | 'OB_QUADRADO' | 'desconhecido' | null;
   descricao: string | null;
 };
