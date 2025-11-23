@@ -88,10 +88,10 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
     };
 
   return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Busca rápida</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Busca rápida</span>
           <input
             name="query"
             value={localFilters.query}
@@ -103,7 +103,7 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Operadora</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Operadora</span>
           <select
             name="operadora"
             value={localFilters.operadora}
@@ -121,7 +121,7 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Hotel</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hotel</span>
           <select
             name="hotel"
             value={localFilters.hotel}
@@ -139,7 +139,7 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">IDENT</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">IDENT</span>
           <input
             name="ident"
             value={localFilters.ident}
@@ -151,7 +151,7 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Data inicial</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Data inicial</span>
           <input
             type="date"
             name="startDate"
@@ -163,7 +163,7 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Data final</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Data final</span>
           <input
             type="date"
             name="endDate"
@@ -179,12 +179,12 @@ export default function ReservationsFilters({ filters, options, isLoading, onCha
         {isLoading ? (
           <p className="text-xs text-slate-400">Carregando filtros disponíveis...</p>
         ) : (
-          <p className="text-xs text-slate-400">
-            {options.operators.length} operadora(s) e {options.hotels.length} hotel(is) disponíveis.
+          <p className="text-xs text-slate-500">
+            Refine por operadora, hotel, IDENT ou intervalo de datas para localizar reservas mais rápido.
           </p>
         )}
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           <button
             type="button"
             onClick={handleReset}

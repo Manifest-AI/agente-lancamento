@@ -326,7 +326,7 @@ export default function ReservationsPageContent() {
   );
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-12">
+    <main className="mx-auto flex min-h-screen w-full max-w-none flex-col gap-8 px-6 py-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">Reservas</h1>
@@ -395,7 +395,7 @@ export default function ReservationsPageContent() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <ReservationsTable
           reservations={reservations}
           viewMode={viewMode}
