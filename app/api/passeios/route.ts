@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import { normalizePasseioDate, normalizePasseioType, type PasseioTipo } from '@/lib/passeios/normalizePasseio';
-import { VALID_PASSEIO_TYPES } from '@/lib/passeios/prompt';
+import { UNKNOWN_PASSEIO_TYPE } from '@/lib/passeios/prompt';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdminClient';
 
 export const runtime = 'nodejs';
@@ -40,7 +40,7 @@ function sanitizeString(value?: string | null) {
 
 function assertPasseioType(value: string): PasseioTipo {
   const normalized = normalizePasseioType(value);
-  if (!normalized || !VALID_PASSEIO_TYPES.includes(normalized)) {
+  if (!normalized || normalized === UNKNOWN_PASSEIO_TYPE) {
     throw new Error('Tipo de passeio inválido.');
   }
   return normalized;

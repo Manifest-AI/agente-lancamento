@@ -9,6 +9,7 @@ import type { NormalizedPasseio } from '@/lib/passeios/normalizePasseio';
 export type ImportPasseioModalProps = {
   isOpen: boolean;
   onClose: () => void;
+  onSaved?: (message?: string) => void;
   onNotify?: (payload: { type: 'success' | 'error'; message: string }) => void;
 };
 
@@ -121,7 +122,7 @@ function hasErrors(errors: PasseioFormErrors) {
   return Object.values(errors).some(Boolean);
 }
 
-export function ImportPasseioModal({ isOpen, onClose, onNotify }: ImportPasseioModalProps) {
+export function ImportPasseioModal({ isOpen, onClose, onNotify, onSaved }: ImportPasseioModalProps) {
   const [activeTab, setActiveTab] = useState<'text' | 'image'>('text');
   const [textInput, setTextInput] = useState('');
   const [formState, setFormState] = useState<PasseioFormState>(EMPTY_FORM);
@@ -313,6 +314,7 @@ export function ImportPasseioModal({ isOpen, onClose, onNotify }: ImportPasseioM
 
       setSuccessMessage('Passeio salvo com sucesso.');
       onNotify?.({ type: 'success', message: 'Passeio salvo com sucesso.' });
+      onSaved?.('Passeio salvo com sucesso.');
       setExtractionState('idle');
       setFormState(EMPTY_FORM);
       setErrors({});
