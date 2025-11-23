@@ -32,4 +32,12 @@ export type ExtractedPasseio = {
   data_passeio: string | null;
   tipo_passeio: 'AR' | 'TR' | 'CA' | 'RF' | 'FL' | 'OB' | 'OB_QUADRADO' | 'desconhecido' | null;
   descricao: string | null;
+  hotel: string | null;
+  regime: 'PRIVATIVO' | 'REGULAR' | null;
+  passageiros: ExtractedPasseioPassenger[] | null;
+};
+
+export type ExtractedPasseioPassenger = {
+  nome: string | null;
+  tipo: 'ADT' | 'CHD' | 'INF' | null;
 };
