@@ -211,7 +211,7 @@ export default function NovaReservaPage() {
           </div>
         )}
 
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4">
           <div>
             <p className="text-sm font-medium text-slate-500">Cadastro manual</p>
             <h1 className="text-3xl font-semibold text-slate-900">Nova reserva</h1>
@@ -219,23 +219,21 @@ export default function NovaReservaPage() {
               Preencha os mesmos campos exibidos no fluxo de importação para registrar uma nova reserva manualmente. Todos os campos são obrigatórios.
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-            <div className="flex flex-col gap-2">
-              <ImportReservaButton
-                onClick={() => {
-                  setImportMode('initial');
-                  setIsImportModalOpen(true);
-                }}
-              />
-              <ImportReservaButton
-                onClick={() => {
-                  setImportMode('adjustment');
-                  setIsImportModalOpen(true);
-                }}
-                label="Alterações e Cancelamentos"
-                icon={RefreshCcw}
-              />
-            </div>
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 [&>a]:whitespace-nowrap [&>button]:whitespace-nowrap">
+            <ImportReservaButton
+              onClick={() => {
+                setImportMode('initial');
+                setIsImportModalOpen(true);
+              }}
+            />
+            <ImportReservaButton
+              onClick={() => {
+                setImportMode('adjustment');
+                setIsImportModalOpen(true);
+              }}
+              label="Alterações e Cancelamentos"
+              icon={RefreshCcw}
+            />
             <Link
               href="/dashboard"
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
