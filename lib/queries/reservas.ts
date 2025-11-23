@@ -60,6 +60,7 @@ export type ReservationsListParams = {
   sort?: ReservationsSort;
   filters?: ReservationFilters;
   userId?: string;
+  applyRange?: boolean;
 };
 
 export type ReservationsListResult = {
@@ -73,6 +74,7 @@ export async function fetchReservations({
   sort = { field: 'created_at', direction: 'desc' },
   filters = {},
   userId,
+  applyRange = true,
 }: ReservationsListParams): Promise<ReservationsListResult> {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
@@ -117,7 +119,10 @@ export async function fetchReservations({
   }
 
   query = query.order(sort.field, { ascending: sort.direction === 'asc', nullsFirst: false });
-  query = query.range(from, to);
+
+  if (applyRange) {
+    query = query.range(from, to);
+  }
 
   const { data, error, count } = await query;
 

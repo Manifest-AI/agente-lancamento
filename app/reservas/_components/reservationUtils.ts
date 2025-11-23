@@ -110,3 +110,45 @@ export function formatRegimeLabel(value: string | null | undefined) {
 
   return '-';
 }
+
+export function formatPasseioTipoLabel(value: string | null | undefined) {
+  const normalized = (value ?? '').trim().toUpperCase();
+
+  switch (normalized) {
+    case 'AR':
+      return "AR – Arraial D'Ajuda";
+    case 'TR':
+      return 'TR – Trancoso';
+    case 'CA':
+      return 'CA – Caraíva';
+    case 'RF':
+      return 'RF – Recife de Fora';
+    case 'FL':
+      return 'FL – Fluvial';
+    case 'OB':
+      return 'OB – Praia do Espelho';
+    case 'OB_QUADRADO':
+      return 'OB_QUADRADO – Praia do Espelho + visita ao Quadrado';
+    default:
+      return '-';
+  }
+}
+
+export function formatPasseioPassengerSummary(passageiros: unknown): string {
+  if (!Array.isArray(passageiros) || passageiros.length === 0) {
+    return '-';
+  }
+
+  const [firstPassenger] = passageiros as { nome?: string | null }[];
+  const firstName = (firstPassenger?.nome ?? '').trim();
+
+  if (!firstName) {
+    return '-';
+  }
+
+  if (passageiros.length === 1) {
+    return firstName;
+  }
+
+  return `${firstName} + ${passageiros.length - 1}`;
+}
