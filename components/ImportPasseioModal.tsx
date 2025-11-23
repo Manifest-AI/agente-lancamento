@@ -203,11 +203,29 @@ type PreviewModalProps = {
   itemLabel: string;
   draft: PasseioFormState;
   errors: PasseioFormErrors;
+  isProcessing?: boolean;
+  isSaving?: boolean;
+  canSave?: boolean;
   onClose: () => void;
   onChange: (draft: PasseioFormState, errors: PasseioFormErrors) => void;
+  onRetry: () => void;
+  onDiscard: () => void;
+  onSave: () => void;
 };
 
-function PasseioPreviewModal({ itemLabel, draft, errors, onClose, onChange }: PreviewModalProps) {
+function PasseioPreviewModal({
+  itemLabel,
+  draft,
+  errors,
+  isProcessing,
+  isSaving,
+  canSave,
+  onClose,
+  onChange,
+  onRetry,
+  onDiscard,
+  onSave,
+}: PreviewModalProps) {
   const handleInputChange = (
     field: keyof Omit<PasseioFormState, 'passageiros'>,
     event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
@@ -436,13 +454,31 @@ function PasseioPreviewModal({ itemLabel, draft, errors, onClose, onChange }: Pr
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
           <button
             type="button"
-            onClick={onClose}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white"
+            onClick={onRetry}
+            disabled={isProcessing}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Fechar
+            Refazer extração
+          </button>
+          <button
+            type="button"
+            onClick={onDiscard}
+            disabled={isProcessing}
+            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Descartar
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!canSave || isSaving || isProcessing}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+            {isSaving ? 'Salvando…' : 'Salvar passeio'}
           </button>
         </div>
       </div>
@@ -587,6 +623,11 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
         errorMessage: null,
       }));
 
+      if (activePreviewItemId === item.id) {
+        setPreviewDraft(mapped);
+        setPreviewErrors(validationErrors);
+      }
+
       onNotify?.({ type: 'success', message: 'Campos importados com sucesso. Revise antes de salvar.' });
     } catch (error) {
       console.error('Erro ao extrair passeio', error);
@@ -661,6 +702,68 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
     }
   };
 
+  const handleExtractFromTextItem = async (item: PasseioQueueItem) => {
+    const content = item.textContent?.trim();
+
+    if (!content) {
+      updateItem(item.id, (current) => ({
+        ...current,
+        status: 'error',
+        errorMessage: 'Conteúdo original não disponível para reprocessamento.',
+      }));
+      onNotify?.({ type: 'error', message: 'Não foi possível reprocessar este passeio.' });
+      return;
+    }
+
+    updateItem(item.id, (current) => ({ ...current, status: 'processing', errorMessage: null }));
+
+    try {
+      const response = await fetch('/api/passeios/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conteudo: content }),
+      });
+
+      const payload = (await response.json()) as ExtractResponse;
+
+      if (!payload.ok || !payload.data) {
+        const message = payload.error?.message || payload.message || 'Não foi possível extrair os dados do passeio.';
+        updateItem(item.id, (current) => ({ ...current, status: 'error', errorMessage: message }));
+        onNotify?.({ type: 'error', message });
+        return;
+      }
+
+      const mapped = normalizePreview(payload.data);
+      const validationErrors = validateForm(mapped);
+      const status: ExtractionStatus = hasErrors(validationErrors) ? 'incomplete' : 'success';
+
+      updateItem(item.id, (current) => ({
+        ...current,
+        status,
+        data: payload.data,
+        draft: mapped,
+        errors: validationErrors,
+        model: payload.model ?? null,
+        errorMessage: null,
+      }));
+
+      if (activePreviewItemId === item.id) {
+        setPreviewDraft(mapped);
+        setPreviewErrors(validationErrors);
+      }
+
+      onNotify?.({ type: 'success', message: 'Campos importados com sucesso. Revise antes de salvar.' });
+    } catch (error) {
+      console.error('Erro ao extrair passeio por texto', error);
+      updateItem(item.id, (current) => ({
+        ...current,
+        status: 'error',
+        errorMessage: 'Não foi possível extrair os dados do passeio.',
+      }));
+      onNotify?.({ type: 'error', message: 'Não foi possível extrair os dados do passeio.' });
+    }
+  };
+
   const handleOpenPreview = (item: PasseioQueueItem) => {
     setActivePreviewItemId(item.id);
     setPreviewDraft(item.draft);
@@ -680,12 +783,12 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
     }
   };
 
-  const handleSavePasseio = async (item: PasseioQueueItem) => {
+  const handleSavePasseio = async (item: PasseioQueueItem): Promise<boolean> => {
     const errors = validateForm(item.draft);
     if (hasErrors(errors)) {
       updateItem(item.id, (current) => ({ ...current, errors, status: 'incomplete', errorMessage: 'Revise os campos antes de salvar.' }));
       onNotify?.({ type: 'error', message: 'Revise os campos destacados antes de salvar.' });
-      return;
+      return false;
     }
 
     const payload = {
@@ -709,18 +812,68 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
         const message = body.error || 'Não foi possível salvar o passeio.';
         updateItem(item.id, (current) => ({ ...current, isSaving: false, errorMessage: message }));
         onNotify?.({ type: 'error', message });
-        return;
+        return false;
       }
 
       updateItem(item.id, (current) => ({ ...current, isSaving: false, status: 'success' }));
       onNotify?.({ type: 'success', message: 'Passeio salvo com sucesso.' });
       onSaved?.('Passeio salvo com sucesso.');
+      return true;
     } catch (error) {
       console.error('Erro ao salvar passeio', error);
       updateItem(item.id, (current) => ({ ...current, isSaving: false, errorMessage: 'Não foi possível salvar o passeio.' }));
       onNotify?.({ type: 'error', message: 'Não foi possível salvar o passeio.' });
+      return false;
     }
   };
+
+  const activePreviewItem = useMemo(
+    () => (activePreviewItemId ? fileItems.find((item) => item.id === activePreviewItemId) ?? null : null),
+    [activePreviewItemId, fileItems],
+  );
+
+  const handleClosePreview = () => {
+    setActivePreviewItemId(null);
+    setPreviewDraft(EMPTY_DRAFT);
+    setPreviewErrors({});
+  };
+
+  const handleRetryPreview = async () => {
+    if (!activePreviewItem) {
+      return;
+    }
+
+    if (activePreviewItem.source === 'text') {
+      await handleExtractFromTextItem(activePreviewItem);
+      return;
+    }
+
+    await handleExtract(activePreviewItem);
+  };
+
+  const handleDiscardPreview = () => {
+    if (activePreviewItem) {
+      handleRemoveItem(activePreviewItem.id);
+    }
+
+    handleClosePreview();
+  };
+
+  const handleSavePreview = async () => {
+    if (!activePreviewItem) {
+      return;
+    }
+
+    const hasSaved = await handleSavePasseio(activePreviewItem);
+
+    if (hasSaved) {
+      handleClosePreview();
+    }
+  };
+
+  const canSavePreview = activePreviewItem ? !hasErrors(previewErrors) : false;
+  const isPreviewProcessing = activePreviewItem?.status === 'processing';
+  const isPreviewSaving = Boolean(activePreviewItem?.isSaving);
 
   if (!isOpen) {
     return null;
@@ -838,7 +991,7 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
                   </div>
 
                   {hasItems ? (
-                    <div className="max-h-[min(420px,50vh)] space-y-3 overflow-y-auto pr-1">
+                    <div className="space-y-3 pr-1">
                       {fileItems.map((item, index) => {
                         const isTextSource = item.source === 'text';
                         const isPdfFile = item.file?.type === 'application/pdf';
@@ -985,8 +1138,14 @@ export function ImportPasseioModal({ isOpen, onClose, onSaved, onNotify }: Impor
           itemLabel={`Passeio ${fileItems.findIndex((item) => item.id === activePreviewItemId) + 1}`}
           draft={previewDraft}
           errors={previewErrors}
-          onClose={() => setActivePreviewItemId(null)}
+          isProcessing={isPreviewProcessing}
+          isSaving={isPreviewSaving}
+          canSave={canSavePreview}
+          onClose={handleClosePreview}
           onChange={(draft, nextErrors) => handlePreviewChange(draft, nextErrors)}
+          onRetry={handleRetryPreview}
+          onDiscard={handleDiscardPreview}
+          onSave={handleSavePreview}
         />
       ) : null}
     </div>
