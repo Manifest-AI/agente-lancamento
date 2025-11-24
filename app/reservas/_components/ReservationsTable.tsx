@@ -81,23 +81,23 @@ const columnDefinitions: Record<ReservationViewMode, ColumnConfig[]> = {
       className: styles.wrap,
     },
     {
-      key: 'passageiro',
-      label: 'Reserva / Passageiro',
-      field: 'nome_pax',
-      render: (record) => (
-        <div className={`${styles.wrap} space-y-1`}>
-          <p className="font-semibold text-slate-800">{record.numeroReserva ?? '-'}</p>
-          <p className="text-sm text-slate-600">{record.nomePax ?? '-'}</p>
-        </div>
-      ),
+      key: 'regime',
+      label: 'Regime',
+      render: (record) => formatRegimeLabel(record.regime),
+      className: styles.nowrap,
+    },
+    {
+      key: 'numero_reserva',
+      label: 'Nº Reserva',
+      render: (record) => <span className={styles.wrap}>{record.numeroReserva ?? '-'}</span>,
       className: styles.wrap,
     },
     {
-      key: 'ident',
-      label: 'IDENT',
-      render: (record) => <span className={styles.nowrap}>{record.ident ?? '-'}</span>,
-      className: styles.nowrap,
-      headerClassName: 'whitespace-nowrap',
+      key: 'passageiro',
+      label: 'Passageiro',
+      field: 'nome_pax',
+      render: (record) => <span className={styles.wrap}>{record.nomePax ?? '-'}</span>,
+      className: styles.wrap,
     },
     {
       key: 'hotel',
@@ -107,7 +107,7 @@ const columnDefinitions: Record<ReservationViewMode, ColumnConfig[]> = {
     },
     {
       key: 'data_chegada',
-      label: 'Chegada',
+      label: 'Data chegada',
       field: 'data_chegada',
       render: (record) => <span className={styles.nowrap}>{formatDate(record.dataChegada)}</span>,
       className: styles.nowrap,
@@ -115,17 +115,11 @@ const columnDefinitions: Record<ReservationViewMode, ColumnConfig[]> = {
     },
     {
       key: 'data_saida',
-      label: 'Saída',
+      label: 'Data saída',
       field: 'data_saida',
       render: (record) => <span className={styles.nowrap}>{formatDate(record.dataSaida)}</span>,
       className: styles.nowrap,
       headerClassName: 'whitespace-nowrap',
-    },
-    {
-      key: 'regime',
-      label: 'Regime',
-      render: (record) => formatRegimeLabel(record.regime),
-      className: styles.nowrap,
     },
     {
       key: 'status',
