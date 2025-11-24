@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation';
 import { RESERVATIONS_DEFAULT_PAGE_SIZE, type ReservationFilters, type ReservationOptions, type ReservationRecord } from '@/lib/queries/reservas';
 import {
@@ -245,6 +244,14 @@ export default function ReservationsPageContent() {
     [handleNavigate],
   );
 
+  const handleGoToDashboard = useCallback(() => {
+    router.push('/dashboard');
+  }, [router]);
+
+  const handleGoToNovaReserva = useCallback(() => {
+    router.push('/nova-reserva');
+  }, [router]);
+
   const handleDeleteRequest = useCallback((id: string) => {
     setSelectedReservationId(id);
   }, []);
@@ -333,12 +340,13 @@ export default function ReservationsPageContent() {
           <p className="text-sm text-slate-600">Consulte e acompanhe suas reservas cadastradas.</p>
         </div>
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
-          <Link
-            href="/dashboard"
+          <button
+            type="button"
+            onClick={handleGoToDashboard}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
           >
             Voltar ao painel
-          </Link>
+          </button>
           <button
             type="button"
             onClick={() => setIsPasseioModalOpen(true)}
@@ -346,12 +354,13 @@ export default function ReservationsPageContent() {
           >
             Importar passeios
           </button>
-          <Link
-            href="/nova-reserva"
+          <button
+            type="button"
+            onClick={handleGoToNovaReserva}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
           >
             Criar nova reserva
-          </Link>
+          </button>
         </div>
       </header>
 
